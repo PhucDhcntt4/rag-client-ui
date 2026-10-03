@@ -1,1 +1,6 @@
-# TODO: Khai báo thư viện Python sau khi chốt cách gọi LLM.
+fastapi
+uvicorn[standard]
+httpx
+pydantic-settings
+pytest
+pytest-asyncio

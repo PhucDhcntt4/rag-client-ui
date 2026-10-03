@@ -1,1 +1,2 @@
-// TODO: Khai báo duy nhất URL công khai của backend client.
+export const API_BASE_URL =
+  window.__APP_CONFIG__?.API_BASE_URL ?? "";
