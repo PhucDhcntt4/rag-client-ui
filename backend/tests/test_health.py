@@ -10,17 +10,38 @@ def test_health():
     assert response.json()["status"] == "ok"
 
 
+def test_ai_provider_catalog_is_safe_for_frontend():
+    with TestClient(app) as client:
+        response = client.get("/api/ai/providers")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert {item["id"] for item in body["providers"]} == {"gemini", "openai"}
+    assert "api_key" not in response.text.lower()
+
+
 def test_frontend_is_served_by_fastapi():
     with TestClient(app) as client:
         page = client.get("/")
         module = client.get("/js/app.js")
         stylesheet = client.get("/assets/styles.css")
+        marked = client.get("/assets/marked.js")
 
     assert page.status_code == 200
     assert page.headers["content-type"].startswith("text/html")
-    assert "RAG Client" in page.text
+    assert 'id="brandLink"' in page.text
+    assert 'id="scopeToggle"' in page.text
+    assert 'aria-controls="scopeControls"' in page.text
+    assert 'id="scrollDownButton"' in page.text
+    assert 'id="documentsDrawer"' in page.text
+    assert 'id="aiProviderSelect"' in page.text
+    assert 'id="documentsModeButton"' in page.text
+    assert 'id="productsModeButton"' in page.text
+    assert 'id="productImageButton"' in page.text
+    assert 'id="productImageInput"' in page.text
     assert module.status_code == 200
     assert stylesheet.status_code == 200
+    assert marked.status_code == 200
 
 
 def test_rag_asset_proxy_returns_image_without_exposing_key():

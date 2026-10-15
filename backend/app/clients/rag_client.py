@@ -355,6 +355,86 @@ class RagClient:
 
         return result
 
+    async def list_products(
+        self,
+        *,
+        query: str | None = None,
+        product_type: str | None = None,
+        status: str | None = "ACTIVE",
+        page: int = 1,
+        limit: int = 20,
+    ) -> dict:
+        params: dict[str, Any] = {
+            "page": page,
+            "limit": limit,
+        }
+        if query:
+            params["q"] = query
+        if product_type:
+            params["product_type"] = product_type
+        if status:
+            params["status"] = status
+
+        result = await self._request(
+            "GET",
+            "/api/v1/products",
+            admin=True,
+            params=params,
+        )
+        if (
+            not isinstance(result, dict)
+            or not isinstance(result.get("products"), list)
+        ):
+            raise RagServiceError(
+                "Response danh sách sản phẩm không hợp lệ"
+            )
+        return result
+
+    async def list_latest_products(
+        self,
+        *,
+        product_type: str | None = None,
+        page: int = 1,
+        limit: int = 10,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict:
+        params: dict[str, Any] = {"page": page, "limit": limit}
+        if product_type:
+            params["product_type"] = product_type
+        if date_from:
+            params["date_from"] = date_from
+        if date_to:
+            params["date_to"] = date_to
+
+        result = await self._request(
+            "GET",
+            "/api/v1/products/latest",
+            admin=False,
+            params=params,
+        )
+        if (
+            not isinstance(result, dict)
+            or not isinstance(result.get("products"), list)
+        ):
+            raise RagServiceError(
+                "Response sản phẩm mới nhất không hợp lệ"
+            )
+        return result
+
+    async def get_product(self, product_code: str) -> dict:
+        safe_code = quote(product_code, safe="")
+        result = await self._request(
+            "GET",
+            f"/api/v1/products/{safe_code}",
+            admin=True,
+        )
+        if not isinstance(result, dict):
+            raise RagServiceError(
+                "Response chi tiết sản phẩm không hợp lệ"
+            )
+        return result
+
     async def close(self):
         if self._owns_client:
             await self._client.aclose()

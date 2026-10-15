@@ -1,32 +1,44 @@
-"""Orchestrate retrieval and grounded answer generation."""
 
 import re
 from pathlib import Path
 
-from app.clients.llm_client import LlmClient
+from app.clients.llm_client import LlmAnswer, LlmClient, LlmServiceError
 from app.clients.rag_client import RagClient
 from app.config import Settings
 from app.schemas import ChatRequest, ChatResponse, ChatSource, SourceAsset
+from app.services.product_service import ProductService, build_product_context
 
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "answer.txt"
+PRODUCT_PROMPT_PATH = (
+    Path(__file__).resolve().parents[1] / "prompts" / "product_answer.txt"
+)
 
 
 def load_answer_prompt() -> str:
     return PROMPT_PATH.read_text(encoding="utf-8").strip()
 
 
-def limit_retrieval(retrieval: dict, limit: int) -> tuple[list[dict], str]:
-    """Keep expanded section searches within the requested chunk limit."""
-    sources = list(retrieval.get("sources") or [])[:limit]
+def load_product_prompt() -> str:
+    return PRODUCT_PROMPT_PATH.read_text(encoding="utf-8").strip()
+
+
+def prepare_retrieval(retrieval: dict) -> tuple[list[dict], str]:
+    """Preserve every source returned after the RAG server expands a section."""
+    sources = list(retrieval.get("sources") or [])
     raw_context = str(retrieval.get("content") or "")
     parts = [
         part.strip()
         for part in re.split(r"(?=\[Nguồn:)", raw_context)
         if part.strip()
     ]
-    if len(parts) >= len(sources) and all(
-        part.startswith("[Nguồn:") for part in parts[:len(sources)]
+    if (
+        sources
+        and len(parts) >= len(sources)
+        and all(
+            part.startswith("[Nguồn:")
+            for part in parts[:len(sources)]
+        )
     ):
         context = "\n\n".join(
             f"[S{index}] {part}"
@@ -43,12 +55,35 @@ class ChatService:
         settings: Settings,
         rag_client: RagClient,
         llm_client: LlmClient,
+        product_service: ProductService | None = None,
     ):
         self.settings = settings
         self.rag_client = rag_client
         self.llm_client = llm_client
+        self.product_service = product_service or ProductService(
+            rag_client,
+            product_timezone=settings.product_timezone,
+            chat_page_size=settings.product_chat_page_size,
+            candidate_page_size=settings.product_candidate_page_size,
+        )
 
     async def answer(self, request: ChatRequest) -> ChatResponse:
+        requested_provider = (
+            request.ai_provider or self.settings.primary_ai_provider
+        )
+        try:
+            llm_config = self.settings.get_ai_provider_config(
+                requested_provider
+            )
+        except ValueError as exc:
+            raise LlmServiceError(str(exc)) from exc
+
+        if request.data_source == "products":
+            return await self._answer_products(
+                request,
+                provider_name=llm_config.provider,
+            )
+
         retrieval = await self.rag_client.search(
             request.query,
             doc_type_id=request.doc_type_id,
@@ -59,16 +94,14 @@ class ChatService:
             return ChatResponse(
                 status="insufficient_context",
                 answer="Tôi chưa tìm thấy thông tin phù hợp trong kho tài liệu.",
+                data_source="documents",
                 sources=[],
                 retrieval_elapsed_ms=retrieval.get("elapsed_ms"),
                 model=None,
+                llm_provider=llm_config.provider,
             )
 
-        source_limit = request.top_k or self.settings.rag_top_k
-        retrieval_sources, retrieval_content = limit_retrieval(
-            retrieval,
-            source_limit,
-        )
+        retrieval_sources, retrieval_content = prepare_retrieval(retrieval)
         sources = [
             ChatSource(
                 citation=f"S{index}",
@@ -96,18 +129,87 @@ class ChatService:
             )
             for index, source in enumerate(retrieval_sources, start=1)
         ]
-        answer = await self.llm_client.generate_answer(
+        generation = await self.llm_client.generate_answer(
             system_prompt=load_answer_prompt(),
             query=request.query,
             history=[item.model_dump() for item in request.history],
             context=retrieval_content,
             sources=[source.model_dump() for source in sources],
+            provider=request.ai_provider,
         )
+        if isinstance(generation, LlmAnswer):
+            answer = generation.text
+            answer_model = generation.model
+            answer_provider = generation.provider
+        else:
+            # Giữ tương thích với fake client trong test/tích hợp cũ.
+            answer = generation
+            answer_model = llm_config.model
+            answer_provider = llm_config.provider
         return ChatResponse(
             status="answered",
             answer=answer,
+            data_source="documents",
             sources=sources,
             retrieved_content=retrieval_content,
             retrieval_elapsed_ms=retrieval.get("elapsed_ms"),
-            model=self.settings.llm_model,
+            model=answer_model,
+            llm_provider=answer_provider,
+        )
+
+    async def _answer_products(
+        self,
+        request: ChatRequest,
+        *,
+        provider_name,
+    ) -> ChatResponse:
+        search_result = await self.product_service.search_for_question(
+            request.query
+        )
+        products = search_result.products
+        if not products:
+            return ChatResponse(
+                status="insufficient_context",
+                answer=(
+                    "Tôi chưa tìm thấy sản phẩm phù hợp. "
+                    "Hãy cung cấp mã sản phẩm hoặc tên sản phẩm cụ thể hơn."
+                ),
+                data_source="products",
+                product_sources=[],
+                product_result=search_result.result,
+                llm_provider=provider_name,
+            )
+
+        context = build_product_context(
+            products,
+            request.query,
+            search_result.result,
+        )
+        generation = await self.llm_client.generate_answer(
+            system_prompt=load_product_prompt(),
+            query=request.query,
+            history=[item.model_dump() for item in request.history],
+            context=context,
+            sources=[],
+            provider=request.ai_provider,
+        )
+        if isinstance(generation, LlmAnswer):
+            answer = generation.text
+            answer_model = generation.model
+            answer_provider = generation.provider
+        else:
+            answer = generation
+            answer_model = None
+            answer_provider = provider_name
+
+        return ChatResponse(
+            status="answered",
+            answer=answer,
+            data_source="products",
+            sources=[],
+            product_sources=products,
+            product_result=search_result.result,
+            retrieved_content=context,
+            model=answer_model,
+            llm_provider=answer_provider,
         )
