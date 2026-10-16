@@ -20,12 +20,17 @@ chạy. FastAPI phục vụ cả backend lẫn thư mục `frontend`.
 Giao diện cho phép chọn Gemini hoặc OpenAI theo từng câu hỏi. Provider chỉ khả
 dụng khi API key tương ứng đã được cấu hình trong `backend/.env`.
 
-Phía trên khung chat có hai tab `Hỏi tài liệu` và `Hỏi sản phẩm`.
-Chế độ sản phẩm đọc catalog, giá, màu, size và tồn kho từ RAG Service,
-sau đó đưa dữ liệu sang provider AI đã chọn để tổng hợp câu trả lời.
+Giao diện dùng một khung chat thống nhất. Client gửi `data_source=auto`;
+backend tự phân loại câu hỏi sang kho tài liệu hoặc kho sản phẩm.
+Khi người dùng chọn phạm vi tài liệu, truy vấn được cố định vào kho
+tài liệu. Khi gửi ảnh, client gọi trực tiếp pipeline nhận diện sản phẩm.
 
 - Giao diện: `http://127.0.0.1:8100`
 - Swagger: `http://127.0.0.1:8100/docs`
+
+Mặc định giao diện ẩn ký hiệu trích dẫn `[S...]`, danh sách tài liệu tham khảo,
+nội dung truy xuất và nút mở kho tài liệu. Dùng
+`http://127.0.0.1:8100/?debug=true` khi cần kiểm tra đầy đủ các nguồn RAG này.
 
 API proxy sản phẩm:
 
@@ -36,7 +41,7 @@ API proxy sản phẩm:
 - `GET /api/products/S5921`
 - `POST /api/products/image-search` (multipart field `file`)
 
-Trong tab sản phẩm, nút `Tìm bằng ảnh` gửi JPEG/PNG/WebP về Client Backend.
+Nút `Tìm bằng ảnh` gửi JPEG/PNG/WebP về Client Backend.
 Backend dùng cùng OpenCLIP `ViT-B-32/laion2b_s34b_b79k` để tạo vector 512
 chiều, truy vấn collection `PRODUCT_IMAGE_COLLECTION`, loại kết quả trùng theo
 mã sản phẩm, sau đó gọi RAG Service lấy chi tiết và tồn kho. Qdrant key

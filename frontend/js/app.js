@@ -12,62 +12,39 @@ import {
 
 const STORE_KEY = "rag-client-conversations-v2";
 const PREF_KEY = "rag-client-preferences-v2";
+const DEBUG_MODE =
+  new URLSearchParams(window.location.search).get("debug")?.toLowerCase() ===
+  "true";
 const defaults = {
   theme: "light",
   accent: "indigo",
   font: "normal",
   aiProvider: "",
-  dataSource: "documents",
+  dataSource: "auto",
 };
 const starterContent = {
-  documents: {
-    title: "Bạn muốn tìm thông tin gì?",
-    detail: "Câu trả lời được tổng hợp từ tài liệu, kèm nguồn tham khảo và dữ liệu truy xuất.",
-    cards: [
-      {
-        title: "Thời gian làm việc",
-        description: "Ca làm việc và thời gian nghỉ",
-        question: "Quy định về thời gian làm việc như thế nào?",
-        icon: "#i-type",
-      },
-      {
-        title: "Chính sách bảo hành",
-        description: "Điều kiện và cách thực hiện",
-        question: "Chính sách bảo hành sản phẩm như thế nào?",
-        icon: "#i-table",
-      },
-      {
-        title: "Quy định công ty",
-        description: "Văn hóa và hình ảnh thương hiệu",
-        question: "Quy định về văn hóa, đạo đức và hình ảnh thương hiệu là gì?",
-        icon: "#i-info",
-      },
-    ],
-  },
-  products: {
-    title: "Bạn muốn tìm sản phẩm nào?",
-    detail: "Tra cứu sản phẩm mới, thông tin biến thể và tình trạng tồn kho đã đồng bộ.",
-    cards: [
-      {
-        title: "Sản phẩm mới tháng này",
-        description: "Danh sách theo ngày sản phẩm mới",
-        question: "Các sản phẩm mới trong tháng này là gì?",
-        icon: "#i-spark",
-      },
-      {
-        title: "Sản phẩm còn hàng",
-        description: "Kiểm tra sản phẩm đang còn kho",
-        question: "Các sản phẩm hiện đang còn hàng là gì?",
-        icon: "#i-table",
-      },
-      {
-        title: "Sản phẩm hết hàng",
-        description: "Tra cứu sản phẩm đã hết kho",
-        question: "Các sản phẩm hiện đang hết hàng là gì?",
-        icon: "#i-info",
-      },
-    ],
-  },
+  title: "Bạn muốn tìm thông tin gì?",
+  detail: "Hỏi về tài liệu, sản phẩm, tồn kho hoặc gửi hình ảnh để nhận diện.",
+  cards: [
+    {
+      title: "Thời gian làm việc",
+      description: "Tra cứu quy định trong tài liệu",
+      question: "Quy định về thời gian làm việc như thế nào?",
+      icon: "#i-type",
+    },
+    {
+      title: "Sản phẩm mới",
+      description: "Xem các sản phẩm mới trong tháng",
+      question: "Các sản phẩm mới trong tháng này là gì?",
+      icon: "#i-spark",
+    },
+    {
+      title: "Sản phẩm còn hàng",
+      description: "Kiểm tra catalog và tồn kho",
+      question: "Các sản phẩm hiện đang còn hàng là gì?",
+      icon: "#i-table",
+    },
+  ],
 };
 const $ = (id) => document.getElementById(id);
 
@@ -221,8 +198,8 @@ function syncAiProviderSelect() {
     : "Chưa có provider AI được cấu hình API key";
 }
 
-function syncStarterContent(source) {
-  const content = starterContent[source];
+function syncStarterContent() {
+  const content = starterContent;
   const emptyState = $("emptyState");
   emptyState.querySelector("h1").textContent = content.title;
   emptyState.querySelector(".welcome-detail").textContent = content.detail;
@@ -230,7 +207,6 @@ function syncStarterContent(source) {
   cards.forEach((card, index) => {
     const item = content.cards[index];
     if (!item) return;
-    card.dataset.source = source;
     card.dataset.suggestion = item.question;
     card.querySelector("strong").textContent = item.title;
     card.querySelector("small").textContent = item.description;
@@ -239,25 +215,17 @@ function syncStarterContent(source) {
 }
 
 function syncDataSource() {
-  const products = app.prefs.dataSource === "products";
-  const source = products ? "products" : "documents";
-  const documentsButton = $("documentsModeButton");
-  const productsButton = $("productsModeButton");
-  documentsButton.classList.toggle("active", !products);
-  productsButton.classList.toggle("active", products);
-  documentsButton.setAttribute("aria-selected", String(!products));
-  productsButton.setAttribute("aria-selected", String(products));
-  $("scopePanel").classList.toggle("hidden", products);
-  $("productImageButton").classList.toggle("hidden", !products);
-  if (!products) clearProductImage();
-  $("messageInput").placeholder = products
-    ? "Hỏi về sản phẩm mới, mã, giá, size hoặc tồn kho..."
-    : "Nhập câu hỏi về tài liệu...";
-  $("composerHint").textContent = products
-    ? "Câu trả lời dựa trên catalog và tồn kho đã đồng bộ"
-    : "Câu trả lời dựa trên tài liệu truy xuất";
-  syncStarterContent(source);
-  if (products) setScopeExpanded(false);
+  app.prefs.dataSource = "auto";
+  $("documentsButton").classList.toggle("hidden", !DEBUG_MODE);
+  $("scopePanel").classList.remove("hidden");
+  $("productImageButton").classList.remove("hidden");
+  if (!app.productImageFile) {
+    $("messageInput").placeholder =
+      "Hỏi về tài liệu, sản phẩm, tồn kho hoặc gửi hình ảnh...";
+  }
+  $("composerHint").textContent =
+    "Trợ lý tự động chọn tài liệu hoặc kho sản phẩm";
+  syncStarterContent();
   requestAnimationFrame(updateComposerDockHeight);
 }
 
@@ -373,6 +341,18 @@ function markdownFragment(markdown) {
     wrapper.append(bar, pre);
   });
   return template.content;
+}
+
+function visibleMessageContent(message) {
+  const content = String(message.content || "");
+  if (DEBUG_MODE || message.dataSource === "products") return content;
+
+  return content
+    .replace(
+      /\s*\[(?:S\d+(?:\s*(?:[,;/-]|\s)\s*S\d+)*)\]/gi,
+      "",
+    )
+    .replace(/[ \t]+([,.;:!?])/g, "$1");
 }
 
 function formatTime(value) {
@@ -877,13 +857,16 @@ function buildMessage(message, index) {
   name.textContent = "Ms.Hài (Trợ lý AI nội bộ)";
   const markdown = document.createElement("div");
   markdown.className = "markdown";
-  markdown.append(markdownFragment(message.content));
+  const visibleContent = visibleMessageContent(message);
+  markdown.append(markdownFragment(visibleContent));
   body.append(name, markdown);
 
   const references =
     message.dataSource === "products"
       ? buildProductReferences(message)
-      : buildReferences(message);
+      : DEBUG_MODE
+        ? buildReferences(message)
+        : null;
   if (references) body.append(references);
 
   const tools = document.createElement("div");
@@ -892,7 +875,7 @@ function buildMessage(message, index) {
   copy.type = "button";
   copy.className = "tool-button";
   copy.append(icon("copy"), document.createTextNode("Sao chép"));
-  copy.addEventListener("click", () => copyText(message.content));
+  copy.addEventListener("click", () => copyText(visibleContent));
   const retry = document.createElement("button");
   retry.type = "button";
   retry.className = "tool-button";
@@ -920,10 +903,7 @@ function buildThinking() {
   body.className = "assistant-content";
   const name = document.createElement("p");
   name.className = "assistant-name";
-  name.textContent =
-    app.prefs.dataSource === "products"
-      ? "Đang kiểm tra sản phẩm và tồn kho…"
-      : "Đang tìm trong tài liệu…";
+  name.textContent = "Đang tìm nguồn thông tin phù hợp…";
   const dots = document.createElement("div");
   dots.className = "typing-dots";
   dots.append(
@@ -1034,6 +1014,7 @@ function deleteChat(id) {
 }
 
 function openDrawer(name) {
+  if (name === "documents" && !DEBUG_MODE) return;
   closeDrawer();
   app.drawer = name;
   const drawer =
@@ -1064,8 +1045,6 @@ function setBusy(value) {
   $("sendButton").classList.toggle("hidden", value);
   $("stopButton").classList.toggle("hidden", !value);
   $("messageInput").disabled = value;
-  $("documentsModeButton").disabled = value;
-  $("productsModeButton").disabled = value;
   $("productImageButton").disabled = value;
   $("removeProductImageButton").disabled = value;
   syncAiProviderSelect();
@@ -1123,16 +1102,16 @@ async function generateResponse() {
   );
   if (userIndex < 0) return;
   const question = chat.messages[userIndex].content;
-  const dataSource =
-    chat.messages[userIndex].dataSource || app.prefs.dataSource || "documents";
   const scope = selectedScope();
+  const hasDocumentScope = Boolean(scope.docTypeId || scope.groupId);
+  const dataSource = hasDocumentScope ? "documents" : "auto";
   const payload = {
     query: question,
     history: buildHistory(chat.messages.slice(0, userIndex)),
     data_source: dataSource,
   };
   if (app.prefs.aiProvider) payload.ai_provider = app.prefs.aiProvider;
-  if (dataSource === "documents") {
+  if (hasDocumentScope) {
     if (scope.docTypeId) payload.doc_type_id = scope.docTypeId;
     if (scope.groupId) payload.group_ids = [scope.groupId];
   }
@@ -1141,16 +1120,17 @@ async function generateResponse() {
   setBusy(true);
   try {
     const result = await sendChat(payload, app.controller.signal);
+    const resolvedSource = result.data_source || "documents";
     chat.messages.push({
       role: "assistant",
       content: result.answer,
-      dataSource: result.data_source || dataSource,
+      dataSource: resolvedSource,
       sources: result.sources || [],
       productSources: result.product_sources || [],
       productResult: result.product_result || null,
       retrievedContent: result.retrieved_content || "",
       query: question,
-      scope: dataSource === "documents" ? scope.label : "Kho sản phẩm",
+      scope: resolvedSource === "documents" ? scope.label : "Kho sản phẩm",
       createdAt: new Date().toISOString(),
     });
     chat.updatedAt = new Date().toISOString();
@@ -1160,7 +1140,7 @@ async function generateResponse() {
       chat.messages.push({
         role: "assistant",
         content: `Không thể lấy câu trả lời lúc này. ${error?.message || "Vui lòng thử lại."}`,
-        dataSource,
+        dataSource: dataSource === "auto" ? "documents" : dataSource,
         sources: [],
         productSources: [],
         productResult: null,
@@ -1209,7 +1189,7 @@ async function submitMessage(value) {
   chat.messages.push({
     role: "user",
     content,
-    dataSource: app.prefs.dataSource || "documents",
+    dataSource: "auto",
     createdAt: new Date().toISOString(),
   });
   if (chat.messages.filter((message) => message.role === "user").length === 1) {
@@ -1296,7 +1276,7 @@ function selectProductImage(file) {
 
 async function submitProductImage(value) {
   const file = app.productImageFile;
-  if (!file || app.busy || app.prefs.dataSource !== "products") return;
+  if (!file || app.busy) return;
   const content = String(value || "").trim() || "Nhận diện sản phẩm bằng hình ảnh";
   let attachmentPreview = "";
   try {
@@ -1385,7 +1365,7 @@ async function submitProductImage(value) {
 }
 
 function submitComposer() {
-  if (app.prefs.dataSource === "products" && app.productImageFile) {
+  if (app.productImageFile) {
     return submitProductImage($("messageInput").value);
   }
   return submitMessage($("messageInput").value);
@@ -1603,7 +1583,11 @@ function bindEvents() {
     startNewChat();
   });
   $("historyButton").addEventListener("click", () => openDrawer("history"));
-  $("documentsButton").addEventListener("click", () => openDrawer("documents"));
+  if (DEBUG_MODE) {
+    $("documentsButton").addEventListener("click", () =>
+      openDrawer("documents"),
+    );
+  }
   $("settingsButton").addEventListener("click", () => openDrawer("settings"));
   $("overlay").addEventListener("click", closeDrawer);
   document
@@ -1615,10 +1599,6 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-suggestion]").forEach((button) => {
     button.addEventListener("click", () => {
-      app.prefs.dataSource =
-        button.dataset.source === "products" ? "products" : "documents";
-      saveJSON(PREF_KEY, app.prefs);
-      syncDataSource();
       submitMessage(button.dataset.suggestion);
     });
   });
@@ -1695,15 +1675,6 @@ function bindEvents() {
     app.prefs.aiProvider = event.target.value;
     saveJSON(PREF_KEY, app.prefs);
     syncAiProviderSelect();
-  });
-  document.querySelectorAll(".data-source-tab").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (app.busy) return;
-      app.prefs.dataSource = button.dataset.source;
-      saveJSON(PREF_KEY, app.prefs);
-      syncDataSource();
-      $("messageInput").focus();
-    });
   });
   $("resetSettings").addEventListener("click", () => {
     app.prefs = { ...defaults };

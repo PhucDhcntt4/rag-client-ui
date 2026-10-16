@@ -576,7 +576,10 @@ Kiểm tra file .env có bị Git theo dõi không:
 19. TÌM SẢN PHẨM BẰNG ẢNH
 ---------------------------
 
-- Tính năng chạy OpenCLIP trong Client Backend và truy vấn trực tiếp Qdrant.
+- Pipeline hiện tại: OpenCLIP tìm nhanh -> Qdrant toàn catalog -> Fast Accept;
+  nếu chưa chắc chắn thì Gemini Vision xác định bounding box -> crop ->
+  OpenCLIP lại -> Qdrant toàn catalog + theo product_type -> Gemini Visual
+  Verification -> Decision Engine -> RAG Service lấy chi tiết và tồn kho.
 - Model phải giống kho vector: ViT-B-32 / laion2b_s34b_b79k / 512 chiều.
 - Qdrant phải truy cập được từ máy chạy Client Backend.
 - Không mở Qdrant cho trình duyệt hoặc đưa QDRANT_API_KEY vào JavaScript.
@@ -585,8 +588,32 @@ Kiểm tra file .env có bị Git theo dõi không:
 - Lần tìm ảnh đầu tiên có thể chậm hơn do OpenCLIP được nạp lazy.
 - Endpoint: POST /api/products/image-search, multipart field: file.
 - Hỗ trợ JPEG, PNG, WebP; dung lượng do PRODUCT_IMAGE_MAX_BYTES quyết định.
+- Chỉ tối đa PRODUCT_VISION_VERIFY_TOP_K ảnh tham chiếu được gửi tới Gemini.
+- Danh sách kiểm chứng luôn giữ lại một số ứng viên phù hợp nhóm
+  sản phẩm từ ảnh gốc. Việc này tránh làm mất SKU đúng khi crop
+  ảnh làm thay đổi thứ hạng vector.
+- Prompt phân tích và prompt kiểm chứng nằm riêng trong backend/app/prompts.
+- Nếu Gemini, ảnh tham chiếu hoặc truy vấn theo nhóm lỗi, hệ thống fallback
+  về kết quả Qdrant thay vì làm hỏng toàn bộ request.
 - PyTorch/OpenCLIP không phù hợp Vercel Functions; nên dùng VPS, Docker,
   Render hoặc máy chủ có bộ nhớ đủ lớn.
+
+Cấu hình chính:
+
+  PRODUCT_VISION_ENABLED=true
+  PRODUCT_VISUAL_VERIFICATION_ENABLED=true
+  PRODUCT_VISION_VERIFY_TOP_K=5
+  PRODUCT_VISION_ORIGINAL_CANDIDATE_SLOTS=2
+  PRODUCT_IMAGE_FAST_ACCEPT_SCORE=0.88
+  PRODUCT_IMAGE_FAST_ACCEPT_MARGIN=0.08
+  PRODUCT_IMAGE_VECTOR_WEIGHT=0.55
+  PRODUCT_IMAGE_VISUAL_WEIGHT=0.45
+  PRODUCT_IMAGE_VERIFY_MIN_SCORE=0.65
+  PRODUCT_IMAGE_VISUAL_MIN_SCORE=0.50
+  PRODUCT_IMAGE_HIGH_CONFIDENCE=0.82
+  PRODUCT_IMAGE_MEDIUM_CONFIDENCE=0.65
+  PRODUCT_REFERENCE_IMAGE_TIMEOUT_SECONDS=15
+  PRODUCT_REFERENCE_IMAGE_MAX_BYTES=6291456
 
 Kiểm tra Qdrant:
 
@@ -598,6 +625,5 @@ Kiểm thử giao diện:
 
   1. Bật Qdrant và RAG Service port 8000.
   2. Chạy Client Backend port 8100.
-  3. Mở tab SẢN PHẨM.
-  4. Bấm Tìm bằng ảnh và chọn ảnh catalog.
-  5. Kiểm tra mã đúng nằm ở vị trí đầu, album hiển thị và link sản phẩm mở được.
+  3. Bấm Tìm bằng ảnh và chọn ảnh catalog.
+  4. Kiểm tra mã đúng nằm ở vị trí đầu, album hiển thị và link sản phẩm mở được.

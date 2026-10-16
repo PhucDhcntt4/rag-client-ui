@@ -140,34 +140,6 @@
           </a>
           <span class="brand-subtitle">Trợ lý AI nội bộ</span>
         </div>
-        <nav class="data-source-tabs-wrap" aria-label="Chọn chế độ hỏi đáp">
-          <div
-            class="data-source-tabs"
-            role="tablist"
-            aria-label="Nguồn dữ liệu"
-          >
-            <button
-              class="data-source-tab active"
-              id="documentsModeButton"
-              type="button"
-              role="tab"
-              aria-selected="true"
-              data-source="documents"
-            >
-              TÀI LIỆU
-            </button>
-            <button
-              class="data-source-tab"
-              id="productsModeButton"
-              type="button"
-              role="tab"
-              aria-selected="false"
-              data-source="products"
-            >
-              SẢN PHẨM
-            </button>
-          </div>
-        </nav>
         <div class="header-right">
           <span class="demo-indicator"
             ><span class="status-dot"></span
@@ -182,7 +154,7 @@
             <svg><use href="#i-plus" /></svg>
           </button>
           <button
-            class="icon-button"
+            class="icon-button hidden"
             id="documentsButton"
             aria-label="Mở kho tài liệu"
             title="Kho tài liệu"
@@ -310,14 +282,14 @@
               id="messageInput"
               name="message"
               rows="1"
-              placeholder="Nhập câu hỏi..."
+              placeholder="Hỏi về tài liệu, sản phẩm, tồn kho hoặc gửi hình ảnh..."
               maxlength="4000"
               aria-label="Nhập nội dung câu hỏi"
             ></textarea>
             <div class="composer-bottom">
               <div class="composer-left">
                 <button
-                  class="product-image-button hidden"
+                  class="product-image-button"
                   id="productImageButton"
                   type="button"
                   aria-label="Tìm sản phẩm bằng ảnh"
@@ -377,7 +349,7 @@
                   </select>
                 </label>
                 <span class="composer-context-hint" id="composerHint"
-                  >Câu trả lời dựa trên tài liệu truy xuất</span
+                  >Trợ lý tự động chọn tài liệu hoặc kho sản phẩm</span
                 >
               </div>
               <div class="composer-actions">
