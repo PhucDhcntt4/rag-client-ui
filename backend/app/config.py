@@ -66,6 +66,33 @@ class Settings(BaseSettings):
     product_image_candidate_limit: int = Field(default=50, ge=1, le=200)
     product_image_min_score: float = Field(default=0.25, ge=0, le=1)
 
+    # Pipeline Gemini Vision được phát triển sau feature flag này. Khi tắt,
+    # luồng OpenCLIP + Qdrant hiện tại tiếp tục hoạt động như trước.
+    product_vision_enabled: bool = False
+    product_vision_model: str | None = None
+    product_vision_timeout_seconds: float = Field(default=45, gt=0, le=180)
+    product_vision_verify_top_k: int = Field(default=5, ge=1, le=10)
+    product_vision_original_candidate_slots: int = Field(default=2, ge=1, le=10)
+    product_visual_verification_enabled: bool = False
+    product_reference_image_timeout_seconds: float = Field(
+        default=15,
+        gt=0,
+        le=60,
+    )
+    product_reference_image_max_bytes: int = Field(
+        default=6 * 1024 * 1024,
+        ge=1024,
+        le=20 * 1024 * 1024,
+    )
+    product_image_fast_accept_score: float = Field(default=0.88, ge=0, le=1)
+    product_image_fast_accept_margin: float = Field(default=0.08, ge=0, le=1)
+    product_image_vector_weight: float = Field(default=0.55, ge=0, le=1)
+    product_image_visual_weight: float = Field(default=0.45, ge=0, le=1)
+    product_image_verify_min_score: float = Field(default=0.65, ge=0, le=1)
+    product_image_visual_min_score: float = Field(default=0.50, ge=0, le=1)
+    product_image_high_confidence: float = Field(default=0.82, ge=0, le=1)
+    product_image_medium_confidence: float = Field(default=0.65, ge=0, le=1)
+
     ai_provider: AiProvider | None = None
     ai_fallback_provider: AiProvider | None = None
 

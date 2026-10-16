@@ -7,6 +7,7 @@ from app.clients.rag_client import RagClient
 from app.config import Settings
 from app.schemas import ChatRequest, ChatResponse, ChatSource, SourceAsset
 from app.services.product_service import ProductService, build_product_context
+from app.services.query_router import detect_data_source
 
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "answer.txt"
@@ -78,7 +79,17 @@ class ChatService:
         except ValueError as exc:
             raise LlmServiceError(str(exc)) from exc
 
-        if request.data_source == "products":
+        data_source = request.data_source
+        if data_source == "auto":
+            data_source = detect_data_source(
+                request.query,
+                request.history,
+                has_document_scope=bool(
+                    request.doc_type_id or request.group_ids
+                ),
+            )
+
+        if data_source == "products":
             return await self._answer_products(
                 request,
                 provider_name=llm_config.provider,

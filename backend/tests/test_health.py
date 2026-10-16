@@ -34,11 +34,16 @@ def test_frontend_is_served_by_fastapi():
     assert 'aria-controls="scopeControls"' in page.text
     assert 'id="scrollDownButton"' in page.text
     assert 'id="documentsDrawer"' in page.text
+    assert 'class="icon-button hidden"' in page.text
     assert 'id="aiProviderSelect"' in page.text
-    assert 'id="documentsModeButton"' in page.text
-    assert 'id="productsModeButton"' in page.text
+    assert 'id="documentsModeButton"' not in page.text
+    assert 'id="productsModeButton"' not in page.text
     assert 'id="productImageButton"' in page.text
     assert 'id="productImageInput"' in page.text
+    assert 'dataSource: "auto"' in module.text
+    assert 'get("debug")' in module.text
+    assert "visibleMessageContent" in module.text
+    assert 'name === "documents" && !DEBUG_MODE' in module.text
     assert module.status_code == 200
     assert stylesheet.status_code == 200
     assert marked.status_code == 200

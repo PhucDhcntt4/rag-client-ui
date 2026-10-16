@@ -74,7 +74,7 @@ async def test_product_chat_uses_catalog_inventory_and_llm():
     result = await service.answer(
         ChatRequest(
             query="S5921 màu đen size 40 còn hàng không?",
-            data_source="products",
+            data_source="auto",
             ai_provider="openai",
         )
     )

@@ -40,6 +40,7 @@ class QdrantImageClient:
         *,
         limit: int,
         score_threshold: float | None = None,
+        product_types: list[str] | tuple[str, ...] | None = None,
     ) -> list[dict[str, Any]]:
         if len(vector) != 512:
             raise QdrantImageError("Vector truy vấn ảnh phải có 512 chiều.")
@@ -54,6 +55,22 @@ class QdrantImageClient:
             }
             if score_threshold is not None:
                 payload["score_threshold"] = score_threshold
+            normalized_product_types = list(
+                dict.fromkeys(
+                    str(value).strip()
+                    for value in (product_types or [])
+                    if str(value).strip()
+                )
+            )
+            if normalized_product_types:
+                payload["filter"] = {
+                    "must": [
+                        {
+                            "key": "product_type",
+                            "match": {"any": normalized_product_types},
+                        }
+                    ]
+                }
 
             response = await self._client.post(
                 f"/collections/{collection}/points/query",

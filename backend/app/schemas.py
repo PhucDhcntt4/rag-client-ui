@@ -23,7 +23,7 @@ class ChatMessage(ApiModel):
 
 class ChatRequest(ApiModel):
     query: str = Field(min_length=1, max_length=4_000)
-    data_source: Literal["documents", "products"] = "documents"
+    data_source: Literal["auto", "documents", "products"] = "auto"
     history: list[ChatMessage] = Field(
         default_factory=list,
         max_length=MAX_HISTORY_MESSAGES,
