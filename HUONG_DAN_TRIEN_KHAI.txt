@@ -1,0 +1,603 @@
+HƯỚNG DẪN TRIỂN KHAI RAG CLIENT UI
+===================================
+
+Tài liệu này áp dụng cho kiến trúc hiện tại của dự án: một tiến trình FastAPI
+phục vụ cả giao diện và API Client, lấy dữ liệu từ RAG Server rồi dùng Gemini
+hoặc OpenAI để tổng hợp câu trả lời.
+
+
+1. KIẾN TRÚC VẬN HÀNH
+---------------------
+
+Luồng chat:
+
+  Trình duyệt
+      -> RAG Client Backend + Frontend (port 8100)
+          -> RAG Server (mặc định port 8000)
+          -> Gemini hoặc OpenAI
+      <- câu trả lời, nguồn trích dẫn và URL ảnh được bảo vệ
+
+Nguyên tắc:
+
+- Trình duyệt chỉ gọi RAG Client Backend qua các endpoint /api/*.
+- Backend tự gắn Bearer key khi gọi RAG Server.
+- Backend gửi ngữ cảnh RAG sang LLM; LLM không tự truy cập RAG Server.
+- Frontend không chứa RAG key, Gemini key hoặc OpenAI key.
+- Ảnh tài liệu được tải qua proxy /api/rag-assets/{id}; key không lộ ra browser.
+- Người dùng chọn Gemini hoặc OpenAI ngay trong ô nhập câu hỏi.
+- Hai provider dùng chung system prompt trong backend/app/prompts/answer.txt.
+- OpenAI có thêm quy tắc trình bày nguồn và bộ lọc chuỗi trích dẫn quá dài.
+
+Cấu trúc chính:
+
+  rag_client_ui/
+  |-- backend/
+  |   |-- .env                  cấu hình bí mật, không commit
+  |   |-- .env.example          mẫu cấu hình
+  |   |-- requirements.txt      dependency Python
+  |   |-- app/
+  |   |   |-- main.py           khởi tạo FastAPI và phục vụ frontend
+  |   |   |-- config.py         đọc/kiểm tra biến môi trường
+  |   |   |-- clients/          kết nối RAG và LLM
+  |   |   |-- routers/          các endpoint /api/*
+  |   |   |-- services/         điều phối truy xuất và trả lời
+  |   |   `-- prompts/answer.txt
+  |   `-- tests/
+  |-- frontend/
+  |   |-- index.html
+  |   |-- js/
+  |   `-- assets/
+  |-- README.md
+  `-- HUONG_DAN_TRIEN_KHAI.txt
+
+
+2. YÊU CẦU HỆ THỐNG
+-------------------
+
+- Python 3.11 trở lên.
+- Git.
+- RAG Server đang chạy và máy Client Backend truy cập được.
+- RAG search key và RAG admin key còn hiệu lực.
+- Ít nhất một trong hai API key: Gemini hoặc OpenAI.
+
+Kiểm tra:
+
+  python --version
+  git --version
+
+
+3. LẤY MÃ NGUỒN
+----------------
+
+Cài mới:
+
+  git clone https://github.com/PhucDhcntt4/rag-client-ui.git
+  cd rag-client-ui\backend
+
+Dự án đã có sẵn:
+
+  cd <duong-dan-du-an>\rag_client_ui
+  git pull origin main
+  cd backend
+
+
+4. TẠO MÔI TRƯỜNG PYTHON
+------------------------
+
+Windows PowerShell:
+
+  python -m venv .venv
+  .\.venv\Scripts\Activate.ps1
+  python -m pip install --upgrade pip
+  pip install -r requirements.txt
+
+Nếu PowerShell chặn Activate.ps1, có thể bỏ bước activate và chạy trực tiếp:
+
+  .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+Linux:
+
+  python3 -m venv .venv
+  source .venv/bin/activate
+  python -m pip install --upgrade pip
+  pip install -r requirements.txt
+
+
+5. TẠO VÀ CẤU HÌNH backend/.env
+--------------------------------
+
+Đứng trong thư mục backend.
+
+Windows:
+
+  Copy-Item .env.example .env
+
+Linux:
+
+  cp .env.example .env
+
+Cấu hình đề xuất:
+
+  APP_NAME=RAG Client Backend
+  APP_ENV=development
+  APP_HOST=127.0.0.1
+  APP_PORT=8100
+  LOG_LEVEL=INFO
+
+  FRONTEND_ORIGIN=http://127.0.0.1:8100
+
+  RAG_BASE_URL=http://127.0.0.1:8000
+  RAG_SEARCH_API_KEY=<RAG_SEARCH_KEY_MOI>
+  RAG_ADMIN_API_KEY=<RAG_ADMIN_KEY_MOI>
+  RAG_TIMEOUT_SECONDS=45
+  RAG_TOP_K=10
+
+  PRODUCT_TIMEZONE_OFFSET=+07:00
+  PRODUCT_CHAT_PAGE_SIZE=10
+  PRODUCT_CANDIDATE_PAGE_SIZE=50
+
+  AI_PROVIDER=gemini
+  AI_FALLBACK_PROVIDER=openai
+
+  GEMINI_API_KEY=<GEMINI_KEY_MOI>
+  GEMINI_MODEL=gemini-3.5-flash-lite
+  GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+
+  OPENAI_API_KEY=<OPENAI_KEY_MOI>
+  OPENAI_MODEL=gpt-4.1-mini
+  OPENAI_BASE_URL=https://api.openai.com/v1
+
+  LLM_TIMEOUT_SECONDS=90
+
+Nếu chỉ có Gemini:
+
+  AI_PROVIDER=gemini
+  # AI_FALLBACK_PROVIDER=openai
+  GEMINI_API_KEY=<GEMINI_KEY_MOI>
+  OPENAI_API_KEY=
+
+Nếu chỉ có OpenAI:
+
+  AI_PROVIDER=openai
+  # AI_FALLBACK_PROVIDER=gemini
+  OPENAI_API_KEY=<OPENAI_KEY_MOI>
+  GEMINI_API_KEY=
+
+Không khai báo AI_FALLBACK_PROVIDER với một provider chưa có API key. Nên comment
+cả dòng fallback thay vì để giá trị không hợp lệ.
+
+Ý nghĩa biến:
+
+- APP_ENV: development, production hoặc test.
+- APP_HOST/APP_PORT: thông tin host/port dự kiến của ứng dụng. Lệnh Uvicorn vẫn
+  phải truyền --host và --port tương ứng.
+- FRONTEND_ORIGIN: origin được CORS cho phép; production dùng domain HTTPS thật.
+- RAG_BASE_URL: URL RAG Server nhìn từ máy/container chạy Client Backend.
+- RAG_SEARCH_API_KEY: tìm kiếm knowledge và tải asset.
+- RAG_ADMIN_API_KEY: taxonomy, danh sách và chi tiết tài liệu.
+- RAG_TOP_K: số kết quả tìm kiếm ban đầu; RAG Server có thể mở rộng nhiều nguồn.
+- PRODUCT_TIMEZONE_OFFSET: múi giờ dùng để hiểu "hôm nay", "tuần này",
+  "tháng này" và "năm nay". Ví dụ Việt Nam là +07:00.
+- PRODUCT_CHAT_PAGE_SIZE: số sản phẩm hiển thị mỗi trang trong chat.
+- PRODUCT_CANDIDATE_PAGE_SIZE: số sản phẩm ứng viên tối đa khi
+  Client cần lọc thêm theo tên, loại hoặc tồn kho.
+- AI_PROVIDER: provider mặc định, chỉ nhận gemini hoặc openai.
+- AI_FALLBACK_PROVIDER: provider dự phòng cho request không chọn provider cụ thể.
+- GEMINI_MODEL/OPENAI_MODEL: model thực tế mà key có quyền sử dụng.
+- GEMINI_BASE_URL/OPENAI_BASE_URL: có thể thay bằng gateway tương thích nếu cần.
+- LLM_TIMEOUT_SECONDS: timeout cho một lượt gọi LLM.
+
+Không dùng dạng sai sau:
+
+  LLM_API_KEY=GEMINI_API_KEY=abc...
+
+Mỗi dòng chỉ có một tên biến:
+
+  GEMINI_API_KEY=abc...
+
+
+6. CHỌN GEMINI HOẶC OPENAI TRÊN GIAO DIỆN
+------------------------------------------
+
+Endpoint GET /api/ai/providers trả về id, nhãn, model và trạng thái available;
+không trả API key.
+
+- Provider có API key hợp lệ sẽ chọn được trong ô nhập câu hỏi.
+- Provider thiếu key hiển thị “chưa cấu hình” và bị vô hiệu hóa.
+- Frontend gửi ai_provider trong từng request POST /api/chat.
+- Khi người dùng đã chọn provider, backend dùng đúng provider đó và không tự đổi
+  sang provider còn lại.
+- AI_FALLBACK_PROVIDER chỉ dùng cho client cũ hoặc request không gửi ai_provider.
+- Lựa chọn trên giao diện được lưu trong localStorage của trình duyệt.
+
+Sau khi đổi key/model trong .env, phải khởi động lại backend và tải lại trang.
+
+
+7. CHẠY LOCAL BẰNG MỘT TERMINAL
+-------------------------------
+
+Phải đứng trong thư mục backend:
+
+  cd <duong-dan-du-an>\rag_client_ui\backend
+
+Windows, môi trường đã activate:
+
+  uvicorn app.main:app --host 127.0.0.1 --port 8100 --reload
+
+Windows, không activate:
+
+  .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8100 --reload
+
+Linux:
+
+  .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8100 --reload
+
+Chỉ cần một lệnh này. FastAPI phục vụ cả frontend và backend.
+
+Địa chỉ:
+
+- Giao diện: http://127.0.0.1:8100
+- Swagger:   http://127.0.0.1:8100/docs
+- Health:    http://127.0.0.1:8100/api/health
+
+
+8. KIỂM TRA SAU KHI KHỞI ĐỘNG
+-----------------------------
+
+Health chỉ xác nhận Client Backend đã chạy:
+
+  Invoke-RestMethod http://127.0.0.1:8100/api/health
+
+Kiểm tra provider, không lộ key:
+
+  Invoke-RestMethod http://127.0.0.1:8100/api/ai/providers
+
+Kiểm tra taxonomy và kết nối RAG admin:
+
+  Invoke-RestMethod http://127.0.0.1:8100/api/taxonomy
+
+Kiểm tra chat bằng PowerShell:
+
+  $body = @{
+    query = "Quy định về thời gian làm việc như thế nào?"
+    history = @()
+    ai_provider = "gemini"
+  } | ConvertTo-Json
+
+  Invoke-RestMethod `
+    -Uri http://127.0.0.1:8100/api/chat `
+    -Method Post `
+    -ContentType "application/json" `
+    -Body $body
+
+Đổi ai_provider thành openai để thử OpenAI.
+
+Kiểm tra thủ công trên giao diện:
+
+- Danh sách loại và nhóm tài liệu tải được.
+- Có thể chọn phạm vi tài liệu.
+- Có thể chọn Gemini/OpenAI đã cấu hình.
+- Câu trả lời hiển thị Markdown, bảng và nguồn [Sx].
+- “Tài liệu tham khảo” mở được tài liệu nguồn.
+- Ảnh nguồn tải qua /api/rag-assets/{id} nếu RAG trả sources[].assets.
+- Không thấy API key trong DevTools -> Network hoặc mã JavaScript.
+
+
+9. CHẠY TEST TRƯỚC KHI TRIỂN KHAI
+---------------------------------
+
+Đứng trong backend.
+
+Windows:
+
+  .\.venv\Scripts\python.exe -m pytest -q
+
+Linux:
+
+  .venv/bin/python -m pytest -q
+
+Kiểm tra cú pháp frontend nếu máy có Node.js:
+
+  node --check ..\frontend\js\app.js
+  node --check ..\frontend\js\api.js
+  node --check ..\frontend\js\config.js
+
+Chỉ triển khai khi toàn bộ test passed.
+
+
+10. CÁC ENDPOINT CỦA CLIENT BACKEND
+-----------------------------------
+
+- GET  /                         giao diện chính
+- GET  /docs                     Swagger/OpenAPI
+- GET  /api/health               trạng thái Client Backend
+- GET  /api/ai/providers         danh sách provider an toàn cho frontend
+- POST /api/chat                 truy xuất RAG và gọi LLM
+- GET  /api/taxonomy             loại/nhóm tài liệu
+- GET  /api/documents            danh sách tài liệu
+- GET  /api/documents/{id}       chi tiết tài liệu
+- GET  /api/documents/by-source-key?source_key=...
+- GET  /api/rag-assets/{id}      proxy ảnh có Bearer key ở backend
+
+Các endpoint RAG Server mà Client đang sử dụng:
+
+- GET  /health/live
+- POST /api/v1/knowledge/search
+- GET  /api/v1/knowledge/assets/{id}
+- GET  /api/v1/taxonomy
+- GET  /api/v1/documents
+- GET  /api/v1/documents/{id}
+- GET  /api/v1/documents/by-source-key
+
+
+11. TRIỂN KHAI PRODUCTION TRÊN VPS/LINUX
+-----------------------------------------
+
+Kiến trúc khuyến nghị:
+
+  Internet -> HTTPS/Nginx -> 127.0.0.1:8100 RAG Client
+                               -> RAG Server trong mạng nội bộ
+                               -> Gemini/OpenAI qua HTTPS
+
+Chuẩn bị:
+
+  sudo mkdir -p /opt/rag-client-ui
+  sudo chown <LINUX_USER>:<LINUX_GROUP> /opt/rag-client-ui
+  cd /opt
+  git clone https://github.com/PhucDhcntt4/rag-client-ui.git rag-client-ui
+  cd /opt/rag-client-ui/backend
+  python3 -m venv .venv
+  .venv/bin/python -m pip install --upgrade pip
+  .venv/bin/pip install -r requirements.txt
+  cp .env.example .env
+
+Điền key thật vào /opt/rag-client-ui/backend/.env rồi chạy test.
+
+Chạy thử production, không dùng --reload:
+
+  .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8100 --workers 2
+
+Tạo /etc/systemd/system/rag-client-ui.service:
+
+  [Unit]
+  Description=RAG Client UI
+  After=network-online.target
+  Wants=network-online.target
+
+  [Service]
+  Type=simple
+  User=<LINUX_USER>
+  Group=<LINUX_GROUP>
+  WorkingDirectory=/opt/rag-client-ui/backend
+  Environment=PYTHONUNBUFFERED=1
+  ExecStart=/opt/rag-client-ui/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8100 --workers 2
+  Restart=always
+  RestartSec=5
+  TimeoutStopSec=30
+
+  [Install]
+  WantedBy=multi-user.target
+
+Kích hoạt:
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now rag-client-ui
+  sudo systemctl status rag-client-ui
+
+Xem log:
+
+  sudo journalctl -u rag-client-ui -f
+
+
+12. CẤU HÌNH NGINX VÀ HTTPS
+----------------------------
+
+Ví dụ server block:
+
+  server {
+      listen 80;
+      server_name chat.example.com;
+
+      client_max_body_size 2m;
+
+      location / {
+          proxy_pass http://127.0.0.1:8100;
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_connect_timeout 10s;
+          proxy_read_timeout 180s;
+          proxy_send_timeout 180s;
+      }
+  }
+
+Kiểm tra và reload:
+
+  sudo nginx -t
+  sudo systemctl reload nginx
+
+Bật HTTPS bằng chứng chỉ phù hợp, sau đó sửa backend/.env:
+
+  APP_ENV=production
+  FRONTEND_ORIGIN=https://chat.example.com
+
+Khởi động lại:
+
+  sudo systemctl restart rag-client-ui
+
+
+13. KHI RAG SERVER CHẠY Ở MÁY HOẶC CONTAINER KHÁC
+-------------------------------------------------
+
+- Cùng máy: RAG_BASE_URL=http://127.0.0.1:8000
+- Khác máy: dùng IP nội bộ hoặc domain HTTPS truy cập được từ Client Backend.
+- Docker: 127.0.0.1 là chính container Client; dùng tên service, ví dụ
+  RAG_BASE_URL=http://rag-service:8000.
+- Không đặt URL máy cá nhân nếu Client chạy trên VPS/Vercel.
+- Kiểm tra firewall, DNS và chứng chỉ TLS từ chính máy chạy Client Backend.
+- Không mở RAG Server công khai nếu không cần; luôn giữ Bearer authentication.
+
+
+14. VERCEL
+----------
+
+Dự án hiện tối ưu cho VPS hoặc máy chủ chạy FastAPI liên tục, chưa phải cấu trúc
+Vercel serverless hoàn chỉnh. Không thể chỉ import repository và mong đợi Uvicorn
+chạy thường trực.
+
+Muốn dùng Vercel cần bổ sung entrypoint Python serverless và vercel.json, đồng
+thời kiểm tra giới hạn thời gian request. RAG_BASE_URL phải là URL HTTPS mà Vercel
+truy cập được; 127.0.0.1:8000 trên máy cá nhân không có tác dụng. Khai báo mọi
+biến trong Vercel Project Settings, không tải backend/.env lên Git.
+
+Với lượt chat gồm cả RAG và LLM, VPS/Render/Railway/Fly.io hoặc một container
+service thường phù hợp hơn môi trường serverless có timeout ngắn.
+
+
+15. CẬP NHẬT PHIÊN BẢN
+-----------------------
+
+  cd /opt/rag-client-ui
+  cp backend/.env /tmp/rag-client-ui.env.backup
+  git pull origin main
+  cd backend
+  .venv/bin/pip install -r requirements.txt
+  .venv/bin/python -m pytest -q
+  sudo systemctl restart rag-client-ui
+  sudo systemctl status rag-client-ui
+
+Nếu cấu hình bị thay đổi, so sánh backend/.env với backend/.env.example nhưng
+không ghi đè key production.
+
+
+16. XỬ LÝ LỖI THƯỜNG GẶP
+-------------------------
+
+Lỗi: ModuleNotFoundError: No module named 'app'
+
+- Nguyên nhân: chạy Uvicorn ngoài thư mục backend.
+- Sửa: cd vào backend rồi chạy uvicorn app.main:app ...
+
+Lỗi: ValidationError khi khởi động
+
+- Kiểm tra backend/.env tồn tại.
+- Kiểm tra RAG_BASE_URL, RAG_SEARCH_API_KEY và RAG_ADMIN_API_KEY.
+- AI_PROVIDER chỉ nhận gemini hoặc openai.
+- Không để AI_FALLBACK_PROVIDER thành chuỗi rỗng; comment dòng nếu không dùng.
+- Không viết hai tên biến trên cùng một dòng.
+
+Lỗi: /api/health chạy nhưng taxonomy/chat lỗi
+
+- /api/health chỉ kiểm tra Client Backend, không kiểm tra RAG hoặc LLM.
+- Kiểm tra RAG Server /health/live, RAG_BASE_URL, key và firewall.
+
+Lỗi: 401/403 từ RAG Server
+
+- RAG_SEARCH_API_KEY hoặc RAG_ADMIN_API_KEY sai/hết hạn/không đủ quyền.
+- Không dùng placeholder replace-with-... trong production.
+
+Lỗi: 503 Không thể kết nối RAG Service
+
+- RAG Server chưa chạy, URL sai, DNS/firewall lỗi hoặc timeout.
+- Nếu chạy Docker, không dùng 127.0.0.1 cho container khác.
+
+Lỗi: Gemini/OpenAI hiện “chưa cấu hình”
+
+- Điền GEMINI_API_KEY hoặc OPENAI_API_KEY rồi restart backend.
+- Mở GET /api/ai/providers để xem available.
+- Tải lại trang bằng Ctrl+F5.
+
+Lỗi: 503 từ LLM
+
+- Kiểm tra AI provider được chọn, API key, model, quota và kết nối Internet.
+- Kiểm tra GEMINI_BASE_URL hoặc OPENAI_BASE_URL.
+- Model phải tồn tại và key phải có quyền gọi model.
+
+Lỗi: trả lời có dấu ** thay vì hiển thị đậm hoặc bảng không format
+
+- Kiểm tra frontend/assets/marked.js được tải thành công.
+- Kiểm tra DevTools Console và Network.
+- Không xóa MARKED_LICENSE.md khi phân phối marked.js.
+
+Lỗi: ảnh nguồn không hiển thị
+
+- Kiểm tra response chat có sources[].assets.
+- Kiểm tra GET /api/rag-assets/{id}.
+- Kiểm tra RAG_SEARCH_API_KEY có quyền tải asset.
+- PDF cũ có thể cần upload lại bằng đúng source_key để tạo asset.
+
+Lỗi: OpenAI dồn hàng loạt nguồn ở cuối
+
+- Code hiện tự loại chuỗi từ 6 nhãn nguồn liên tiếp trở lên với OpenAI.
+- Restart backend và tạo cuộc trò chuyện mới để tránh lịch sử cũ ảnh hưởng.
+
+
+17. BẢO MẬT
+------------
+
+- backend/.env đã nằm trong .gitignore; vẫn phải kiểm tra trước khi commit.
+- Không đặt key trong frontend, ảnh chụp, tài liệu công khai hoặc log.
+- Thu hồi và tạo key mới ngay khi key bị dán vào chat hoặc commit lên Git.
+- Chỉ cấp đúng quyền cần thiết cho RAG search/admin key.
+- Dùng HTTPS cho production.
+- Giới hạn SSH, firewall và quyền đọc backend/.env.
+- Không trả stack trace hoặc cấu hình bí mật cho người dùng cuối.
+- Định kỳ xoay key và kiểm tra quota của Gemini/OpenAI.
+
+Kiểm tra file .env có bị Git theo dõi không:
+
+  git check-ignore -v backend/.env
+
+
+18. CHECKLIST TRIỂN KHAI
+------------------------
+
+[ ] Python 3.11+ và dependency đã cài.
+[ ] backend/.env được tạo từ .env.example.
+[ ] Không còn placeholder hoặc key đã bị lộ.
+[ ] RAG Server truy cập được từ Client Backend.
+[ ] RAG search/admin key đúng quyền.
+[ ] Ít nhất một LLM provider có available=true.
+[ ] Gemini/OpenAI đã được thử từ giao diện nếu cùng sử dụng.
+[ ] Test backend passed.
+[ ] Frontend mở bằng đúng URL của FastAPI.
+[ ] Taxonomy, tài liệu, chat, nguồn và ảnh hoạt động.
+[ ] GET /api/products trả danh sách sản phẩm.
+[ ] Chat với nguồn "Sản phẩm & tồn kho" trả đúng giá/size/tồn kho.
+[ ] API key không xuất hiện trong browser.
+[ ] Production không dùng --reload.
+[ ] Nginx timeout đủ dài và domain đã bật HTTPS.
+[ ] systemd tự khởi động lại và log xem được.
+[ ] Có quy trình backup .env và cập nhật phiên bản.
+
+
+19. TÌM SẢN PHẨM BẰNG ẢNH
+---------------------------
+
+- Tính năng chạy OpenCLIP trong Client Backend và truy vấn trực tiếp Qdrant.
+- Model phải giống kho vector: ViT-B-32 / laion2b_s34b_b79k / 512 chiều.
+- Qdrant phải truy cập được từ máy chạy Client Backend.
+- Không mở Qdrant cho trình duyệt hoặc đưa QDRANT_API_KEY vào JavaScript.
+- RAG Service vẫn phải chạy để Client lấy chi tiết, giá, size và tồn kho
+  sau khi Qdrant trả về product_code.
+- Lần tìm ảnh đầu tiên có thể chậm hơn do OpenCLIP được nạp lazy.
+- Endpoint: POST /api/products/image-search, multipart field: file.
+- Hỗ trợ JPEG, PNG, WebP; dung lượng do PRODUCT_IMAGE_MAX_BYTES quyết định.
+- PyTorch/OpenCLIP không phù hợp Vercel Functions; nên dùng VPS, Docker,
+  Render hoặc máy chủ có bộ nhớ đủ lớn.
+
+Kiểm tra Qdrant:
+
+  collection phải green
+  vector size phải là 512
+  distance phải là Cosine
+
+Kiểm thử giao diện:
+
+  1. Bật Qdrant và RAG Service port 8000.
+  2. Chạy Client Backend port 8100.
+  3. Mở tab SẢN PHẨM.
+  4. Bấm Tìm bằng ảnh và chọn ảnh catalog.
+  5. Kiểm tra mã đúng nằm ở vị trí đầu, album hiển thị và link sản phẩm mở được.

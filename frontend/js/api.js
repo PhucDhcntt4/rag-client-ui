@@ -18,7 +18,8 @@ async function apiRequest(path, options = {}) {
         ...options.headers,
       },
     });
-  } catch {
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
     throw new ApiError("Không thể kết nối RAG Client Backend.");
   }
 
@@ -46,6 +47,7 @@ async function apiRequest(path, options = {}) {
 }
 
 export const getHealth = () => apiRequest("/api/health");
+export const getAiProviders = () => apiRequest("/api/ai/providers");
 export const getTaxonomy = () => apiRequest("/api/taxonomy");
 export const getDocuments = () => apiRequest("/api/documents");
 export const getDocument = (id) =>
@@ -54,9 +56,65 @@ export const getDocumentBySourceKey = (sourceKey) =>
   apiRequest(
     `/api/documents/by-source-key?source_key=${encodeURIComponent(sourceKey)}`,
   );
-export const sendChat = (payload) =>
+export const getProducts = ({
+  query = "",
+  productType = "",
+  status = "ACTIVE",
+  page = 1,
+  limit = 20,
+} = {}) => {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+  if (query) params.set("q", query);
+  if (productType) params.set("product_type", productType);
+  if (status) params.set("status", status);
+  return apiRequest(`/api/products?${params.toString()}`);
+};
+export const getLatestProducts = ({
+  productType = "",
+  page = 1,
+  limit = 10,
+  dateFrom = "",
+  dateTo = "",
+} = {}) => {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+  if (productType) params.set("product_type", productType);
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
+  return apiRequest(`/api/products/latest?${params.toString()}`);
+};
+export const getLatestProductDetails = ({
+  page = 1,
+  limit,
+  dateFrom = "",
+  dateTo = "",
+} = {}) => {
+  const params = new URLSearchParams({ page: String(page) });
+  if (limit) params.set("limit", String(limit));
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
+  return apiRequest(`/api/products/latest/details?${params.toString()}`);
+};
+export const getProduct = (productCode) =>
+  apiRequest(`/api/products/${encodeURIComponent(productCode)}`);
+export const searchProductsByImage = (file, signal) => {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  return apiRequest("/api/products/image-search", {
+    method: "POST",
+    body: form,
+    ...(signal ? { signal } : {}),
+  });
+};
+export const sendChat = (payload, signal) =>
   apiRequest("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    ...(signal ? { signal } : {}),
   });
