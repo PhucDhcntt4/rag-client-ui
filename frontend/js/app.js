@@ -398,6 +398,48 @@ function uniqueAssets(sources) {
   return [...assets.values()];
 }
 
+function buildAssetGallery(sources, { showDebugMetadata = false } = {}) {
+  const assets = uniqueAssets(sources);
+  if (!assets.length) return null;
+
+  const gallery = document.createElement("div");
+  gallery.className = "rag-asset-gallery";
+  for (const asset of assets) {
+    const figure = document.createElement("figure");
+    const image = document.createElement("img");
+    image.src = asset.url;
+    image.alt =
+      asset.caption || `${asset.source.title}, trang ${asset.page_number}`;
+    image.loading = "lazy";
+    image.addEventListener("click", () =>
+      window.open(asset.url, "_blank", "noopener"),
+    );
+
+    const caption = document.createElement("figcaption");
+    const captionText = asset.caption || asset.source.title || "Hình ảnh tài liệu";
+    caption.textContent = showDebugMetadata
+      ? `[${asset.source.citation}] ${captionText} — Trang ${asset.page_number}`
+      : captionText;
+    figure.append(image, caption);
+    gallery.append(figure);
+  }
+  return gallery;
+}
+
+function buildPublicDocumentImages(message) {
+  const sources = Array.isArray(message.sources) ? message.sources : [];
+  const gallery = buildAssetGallery(sources);
+  if (!gallery) return null;
+
+  const section = document.createElement("section");
+  section.className = "rag-references rag-public-images";
+  const heading = document.createElement("div");
+  heading.className = "rag-reference-heading";
+  heading.textContent = "Hình ảnh liên quan";
+  section.append(heading, gallery);
+  return section;
+}
+
 function buildReferences(message) {
   const allSources = Array.isArray(message.sources) ? message.sources : [];
   const sources = citedSources(message.content, allSources);
@@ -434,27 +476,8 @@ function buildReferences(message) {
 
   // Ảnh có thể nằm ở một chunk nguồn không được LLM trích dẫn trực tiếp.
   // Vì vậy luôn gom assets từ toàn bộ sources mà RAG trả về.
-  const assets = uniqueAssets(allSources);
-  if (assets.length) {
-    const gallery = document.createElement("div");
-    gallery.className = "rag-asset-gallery";
-    for (const asset of assets) {
-      const figure = document.createElement("figure");
-      const image = document.createElement("img");
-      image.src = asset.url;
-      image.alt =
-        asset.caption || `${asset.source.title}, trang ${asset.page_number}`;
-      image.loading = "lazy";
-      image.addEventListener("click", () =>
-        window.open(asset.url, "_blank", "noopener"),
-      );
-      const caption = document.createElement("figcaption");
-      caption.textContent = `[${asset.source.citation}] ${asset.caption || asset.source.title} — Trang ${asset.page_number}`;
-      figure.append(image, caption);
-      gallery.append(figure);
-    }
-    section.append(gallery);
-  }
+  const gallery = buildAssetGallery(allSources, { showDebugMetadata: true });
+  if (gallery) section.append(gallery);
 
   if (message.retrievedContent) {
     const details = document.createElement("details");
@@ -866,7 +889,7 @@ function buildMessage(message, index) {
       ? buildProductReferences(message)
       : DEBUG_MODE
         ? buildReferences(message)
-        : null;
+        : buildPublicDocumentImages(message);
   if (references) body.append(references);
 
   const tools = document.createElement("div");

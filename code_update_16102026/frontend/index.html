@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#f9fafb" />
+    <meta
+      name="description"
+      content="Ms.Hài — tra cứu tài liệu, sản phẩm và tồn kho với AI."
+    />
+    <title>Ms.Hài — Trợ lý AI nội bộ</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <symbol id="i-panel" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M9 4v16" />
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24">
+        <path d="M12 5v14M5 12h14" />
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <path d="M4 7h16M4 17h16M8 4v6M16 14v6" />
+        <circle cx="8" cy="7" r="2" />
+        <circle cx="16" cy="17" r="2" />
+      </symbol>
+      <symbol id="i-send" viewBox="0 0 24 24">
+        <path d="m4 12 16-8-4 16-4-7-8-1Z" />
+        <path d="m12 13 8-9" />
+      </symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24">
+        <rect x="8" y="8" width="12" height="12" rx="2" />
+        <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="m5 12 4 4L19 6" />
+      </symbol>
+      <symbol id="i-rotate" viewBox="0 0 24 24">
+        <path d="M3 11a9 9 0 1 1 3 6.7" />
+        <path d="M3 4v7h7" />
+      </symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path
+          d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"
+        />
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24">
+        <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5 8.5 8.5 0 1 0 20.5 14.5Z" />
+      </symbol>
+      <symbol id="i-monitor" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="14" rx="2" />
+        <path d="M8 22h8m-4-4v4" />
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24">
+        <path d="M18 6 6 18M6 6l12 12" />
+      </symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24">
+        <path
+          d="m12 2 2.3 7.7L22 12l-7.7 2.3L12 22l-2.3-7.7L2 12l7.7-2.3L12 2Z"
+        />
+      </symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24">
+        <path d="M4 7h16M4 12h16M4 17h16" />
+      </symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24">
+        <path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3" />
+      </symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24">
+        <path d="M5 12h14m-6-6 6 6-6 6" />
+      </symbol>
+      <symbol id="i-code" viewBox="0 0 24 24">
+        <path d="m8 8-4 4 4 4m8-8 4 4-4 4m-3-12-2 16" />
+      </symbol>
+      <symbol id="i-table" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M3 10h18M3 15h18M10 4v16" />
+      </symbol>
+      <symbol id="i-type" viewBox="0 0 24 24">
+        <path d="M4 7V4h16v3M12 4v16m-4 0h8" />
+      </symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24">
+        <path d="m9 18 6-6-6-6" />
+      </symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24">
+        <rect x="7" y="7" width="10" height="10" rx="1" />
+      </symbol>
+      <symbol id="i-info" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 11v6m0-10v.1" />
+      </symbol>
+      <symbol id="i-file" viewBox="0 0 24 24">
+        <path d="M6 3h8l4 4v14H6z" />
+        <path d="M14 3v5h5M9 13h6M9 17h6" />
+      </symbol>
+      <symbol id="i-image" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <circle cx="8.5" cy="9" r="1.5" />
+        <path d="m4 17 5-5 4 4 2-2 5 5" />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-4-4" />
+      </symbol>
+      <symbol id="i-down" viewBox="0 0 24 24">
+        <path d="m7 10 5 5 5-5" />
+      </symbol>
+      <symbol id="i-arrow-down" viewBox="0 0 24 24">
+        <path d="M12 4v15" />
+        <path d="m6.5 13.5 5.5 5.5 5.5-5.5" />
+      </symbol>
+    </svg>
+
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="header-left">
+          <button
+            class="icon-button"
+            id="historyButton"
+            aria-label="Mở lịch sử trò chuyện"
+            title="Lịch sử trò chuyện"
+          >
+            <svg><use href="#i-panel" /></svg>
+          </button>
+          <span class="header-separator" aria-hidden="true"></span>
+          <a
+            class="brand"
+            href="#"
+            id="brandLink"
+            aria-label="Ms.Hài - Trang chủ"
+          >
+            <span class="brand-mark"
+              ><svg><use href="#i-spark" /></svg
+            ></span>
+            <span class="brand-text">Ms.Hài</span>
+          </a>
+          <span class="brand-subtitle">Trợ lý AI nội bộ</span>
+        </div>
+        <div class="header-right">
+          <span class="demo-indicator"
+            ><span class="status-dot"></span
+            ><span id="modeLabel">Đang kết nối</span></span
+          >
+          <button
+            class="header-new icon-button"
+            id="newButton"
+            aria-label="Cuộc trò chuyện mới"
+            title="Cuộc trò chuyện mới"
+          >
+            <svg><use href="#i-plus" /></svg>
+          </button>
+          <button
+            class="icon-button hidden"
+            id="documentsButton"
+            aria-label="Mở kho tài liệu"
+            title="Kho tài liệu"
+          >
+            <svg><use href="#i-file" /></svg>
+          </button>
+          <button
+            class="icon-button"
+            id="settingsButton"
+            aria-label="Tùy chỉnh giao diện"
+            title="Tùy chỉnh giao diện"
+          >
+            <svg><use href="#i-settings" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-panel">
+        <div
+          class="conversation-scroll"
+          id="conversationScroll"
+          role="region"
+          aria-label="Nội dung trò chuyện"
+          tabindex="0"
+        >
+          <div class="empty-state" id="emptyState">
+            <div class="welcome-symbol">
+              <svg><use href="#i-spark" /></svg>
+            </div>
+            <p class="welcome-kicker">TRỢ LÝ AI NỘI BỘ</p>
+            <h1>Bạn muốn tìm thông tin gì?</h1>
+            <p class="welcome-detail">
+              Câu trả lời được tổng hợp từ tài liệu và kho sản phẩm,<br
+                class="desktop-break"
+              />
+              kèm nguồn tham khảo và dữ liệu truy xuất.
+            </p>
+            <div class="starter-grid">
+              <button
+                class="starter-card"
+                data-suggestion="Quy định về thời gian làm việc như thế nào?"
+              >
+                <span class="starter-icon"
+                  ><svg><use href="#i-type" /></svg
+                ></span>
+                <span
+                  ><strong>Thời gian làm việc</strong
+                  ><small>Ca làm việc và thời gian nghỉ</small></span
+                >
+                <svg class="starter-arrow"><use href="#i-arrow" /></svg>
+              </button>
+              <button
+                class="starter-card"
+                data-suggestion="Chính sách bảo hành sản phẩm như thế nào?"
+              >
+                <span class="starter-icon"
+                  ><svg><use href="#i-table" /></svg
+                ></span>
+                <span
+                  ><strong>Chính sách bảo hành</strong
+                  ><small>Điều kiện và cách thực hiện</small></span
+                >
+                <svg class="starter-arrow"><use href="#i-arrow" /></svg>
+              </button>
+              <button
+                class="starter-card"
+                data-suggestion="Quy định về văn hóa, đạo đức và hình ảnh thương hiệu là gì?"
+              >
+                <span class="starter-icon"
+                  ><svg><use href="#i-info" /></svg
+                ></span>
+                <span
+                  ><strong>Quy định công ty</strong
+                  ><small>Văn hóa và hình ảnh thương hiệu</small></span
+                >
+                <svg class="starter-arrow"><use href="#i-arrow" /></svg>
+              </button>
+            </div>
+          </div>
+          <div
+            class="message-list hidden"
+            id="messageList"
+            aria-live="polite"
+            aria-relevant="additions"
+          ></div>
+          <div id="bottomAnchor"></div>
+        </div>
+
+        <button
+          id="scrollDownButton"
+          class="scroll-down-button hidden"
+          type="button"
+          aria-label="Cuộn xuống tin nhắn mới nhất"
+          title="Xuống tin nhắn mới nhất"
+        >
+          <svg aria-hidden="true"><use href="#i-arrow-down" /></svg>
+        </button>
+
+        <div class="composer-dock">
+          <form class="composer" id="composerForm" autocomplete="off">
+            <input
+              id="productImageInput"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              hidden
+            />
+            <div class="product-image-preview hidden" id="productImagePreview">
+              <img id="productImagePreviewImage" alt="Ảnh sản phẩm đã chọn" />
+              <div class="product-image-preview-copy">
+                <strong id="productImagePreviewName"></strong>
+                <small id="productImagePreviewMeta"></small>
+              </div>
+              <button
+                id="removeProductImageButton"
+                class="product-image-remove"
+                type="button"
+                aria-label="Bỏ ảnh đã chọn"
+                title="Bỏ ảnh"
+              >
+                <svg><use href="#i-x" /></svg>
+              </button>
+            </div>
+            <label class="sr-only" for="messageInput">Nhập tin nhắn</label>
+            <textarea
+              id="messageInput"
+              name="message"
+              rows="1"
+              placeholder="Hỏi về tài liệu, sản phẩm, tồn kho hoặc gửi hình ảnh..."
+              maxlength="4000"
+              aria-label="Nhập nội dung câu hỏi"
+            ></textarea>
+            <div class="composer-bottom">
+              <div class="composer-left">
+                <button
+                  class="product-image-button"
+                  id="productImageButton"
+                  type="button"
+                  aria-label="Tìm sản phẩm bằng ảnh"
+                  title="Tải ảnh để nhận diện sản phẩm"
+                >
+                  <svg aria-hidden="true"><use href="#i-image" /></svg>
+                  <span>Tìm bằng ảnh</span>
+                </button>
+                <section
+                  class="scope-panel"
+                  id="scopePanel"
+                  aria-label="Phạm vi tài liệu"
+                >
+                  <button
+                    class="scope-toggle"
+                    id="scopeToggle"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="scopeControls"
+                  >
+                    <svg class="scope-file-icon" aria-hidden="true">
+                      <use href="#i-file" />
+                    </svg>
+                    <span id="scopeSummary">Tất cả tài liệu</span>
+                    <svg class="scope-chevron" aria-hidden="true">
+                      <use href="#i-down" />
+                    </svg>
+                  </button>
+                  <div class="scope-controls" id="scopeControls" hidden>
+                    <div class="scope-popover-heading">
+                      <strong>Phạm vi tài liệu</strong>
+                      <small>Chọn nguồn dùng để trả lời</small>
+                    </div>
+                    <label
+                      ><span class="scope-field-level">Mục cha</span>Loại tài
+                      liệu<select id="chatDocumentType">
+                        <option value="">Tất cả loại</option>
+                      </select></label
+                    >
+                    <label
+                      ><span class="scope-field-level">Mục con</span>Nhóm tài
+                      liệu<select id="chatDocumentGroup">
+                        <option value="">Tất cả nhóm</option>
+                      </select></label
+                    >
+                  </div>
+                </section>
+                <label class="ai-provider-control" for="aiProviderSelect">
+                  <span class="sr-only">Mô hình AI trả lời</span>
+                  <select
+                    id="aiProviderSelect"
+                    aria-label="Chọn mô hình AI trả lời"
+                    title="Chọn mô hình AI trả lời"
+                    disabled
+                  >
+                    <option value="">Đang tải AI...</option>
+                  </select>
+                </label>
+                <span class="composer-context-hint" id="composerHint"
+                  >Trợ lý tự động chọn tài liệu hoặc kho sản phẩm</span
+                >
+              </div>
+              <div class="composer-actions">
+                <span class="keyboard-hint">Enter để gửi</span>
+                <button
+                  id="sendButton"
+                  class="send-button"
+                  type="submit"
+                  aria-label="Gửi tin nhắn"
+                  title="Gửi"
+                >
+                  <svg><use href="#i-send" /></svg>
+                </button>
+                <button
+                  id="stopButton"
+                  class="send-button hidden"
+                  type="button"
+                  aria-label="Dừng trả lời"
+                  title="Dừng"
+                >
+                  <svg><use href="#i-stop" /></svg>
+                </button>
+              </div>
+            </div>
+          </form>
+          <p class="composer-note">
+            AI có thể mắc lỗi. Hãy kiểm tra lại nguồn và thời điểm đồng bộ tồn
+            kho.
+          </p>
+        </div>
+      </main>
+    </div>
+
+    <div id="overlay" class="overlay hidden" aria-hidden="true"></div>
+    <aside
+      id="historyDrawer"
+      class="side-drawer hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Lịch sử trò chuyện"
+    >
+      <div class="drawer-header">
+        <h2>Lịch sử trò chuyện</h2>
+        <button
+          class="icon-button"
+          data-close="history"
+          aria-label="Đóng lịch sử"
+        >
+          <svg><use href="#i-x" /></svg>
+        </button>
+      </div>
+      <div class="drawer-body">
+        <button class="drawer-create" id="drawerNew">
+          <svg><use href="#i-plus" /></svg>Cuộc trò chuyện mới
+        </button>
+        <p class="drawer-section-title">GẦN ĐÂY</p>
+        <div id="conversationHistory" class="history-list"></div>
+      </div>
+      <div class="drawer-footer">
+        <button id="clearHistory" class="text-action danger">
+          <svg><use href="#i-trash" /></svg>Xóa toàn bộ lịch sử
+        </button>
+        <p>Lịch sử được lưu trong trình duyệt này.</p>
+      </div>
+    </aside>
+
+    <aside
+      id="documentsDrawer"
+      class="side-drawer wide-drawer hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Kho tài liệu"
+    >
+      <div class="drawer-header">
+        <h2>Kho tài liệu</h2>
+        <button
+          class="icon-button"
+          data-close="documents"
+          aria-label="Đóng kho tài liệu"
+        >
+          <svg><use href="#i-x" /></svg>
+        </button>
+      </div>
+      <div class="drawer-body documents-body">
+        <div class="document-search">
+          <svg><use href="#i-search" /></svg
+          ><input
+            id="documentSearch"
+            type="search"
+            placeholder="Tìm tài liệu..."
+            aria-label="Tìm tài liệu"
+          />
+        </div>
+        <div class="document-filters">
+          <label
+            >Loại tài liệu<select id="documentTypeFilter">
+              <option value="">Tất cả loại</option>
+            </select></label
+          >
+          <label
+            >Nhóm tài liệu<select id="documentGroupFilter">
+              <option value="">Tất cả nhóm</option>
+            </select></label
+          >
+        </div>
+        <div id="documentList" class="document-list">
+          <p class="drawer-loading">Đang tải tài liệu…</p>
+        </div>
+      </div>
+    </aside>
+
+    <aside
+      id="settingsDrawer"
+      class="side-drawer hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Tùy chỉnh giao diện"
+    >
+      <div class="drawer-header">
+        <h2>Tùy chỉnh giao diện</h2>
+        <button
+          class="icon-button"
+          data-close="settings"
+          aria-label="Đóng tùy chỉnh"
+        >
+          <svg><use href="#i-x" /></svg>
+        </button>
+      </div>
+      <div class="drawer-body settings-body">
+        <div class="setting-group">
+          <div class="setting-heading">
+            <h3>Chế độ hiển thị</h3>
+            <p>Chọn giao diện phù hợp với bạn.</p>
+          </div>
+          <div class="theme-options" role="group" aria-label="Chế độ hiển thị">
+            <button class="theme-choice" data-theme="light">
+              <span class="theme-preview light-preview"
+                ><svg><use href="#i-sun" /></svg></span
+              ><span>Sáng</span>
+            </button>
+            <button class="theme-choice" data-theme="dark">
+              <span class="theme-preview dark-preview"
+                ><svg><use href="#i-moon" /></svg></span
+              ><span>Tối</span>
+            </button>
+            <button class="theme-choice" data-theme="system">
+              <span class="theme-preview system-preview"
+                ><svg><use href="#i-monitor" /></svg></span
+              ><span>Hệ thống</span>
+            </button>
+          </div>
+        </div>
+        <div class="setting-group">
+          <div class="setting-heading">
+            <h3>Màu chủ đạo</h3>
+            <p>Tùy biến các nút và điểm nhấn.</p>
+          </div>
+          <div class="accent-options" role="group" aria-label="Màu chủ đạo">
+            <button
+              class="accent-choice"
+              style="--swatch: #6366f1"
+              data-accent="indigo"
+              aria-label="Màu tím chàm"
+            >
+              <svg><use href="#i-check" /></svg>
+            </button>
+            <button
+              class="accent-choice"
+              style="--swatch: #0d9488"
+              data-accent="teal"
+              aria-label="Màu xanh ngọc"
+            >
+              <svg><use href="#i-check" /></svg>
+            </button>
+            <button
+              class="accent-choice"
+              style="--swatch: #ea6174"
+              data-accent="rose"
+              aria-label="Màu hồng"
+            >
+              <svg><use href="#i-check" /></svg>
+            </button>
+            <button
+              class="accent-choice"
+              style="--swatch: #b7791f"
+              data-accent="amber"
+              aria-label="Màu vàng hổ phách"
+            >
+              <svg><use href="#i-check" /></svg>
+            </button>
+          </div>
+        </div>
+        <div class="setting-group">
+          <div class="setting-heading">
+            <h3>Cỡ chữ nội dung</h3>
+            <p>Áp dụng cho tất cả câu trả lời.</p>
+          </div>
+          <div class="font-options" role="group" aria-label="Cỡ chữ nội dung">
+            <button class="font-choice" data-font="small">Nhỏ</button
+            ><button class="font-choice" data-font="normal">Vừa</button
+            ><button class="font-choice" data-font="large">Lớn</button>
+          </div>
+        </div>
+      </div>
+      <div class="drawer-footer">
+        <button id="resetSettings" class="text-action">
+          <svg><use href="#i-rotate" /></svg>Khôi phục mặc định
+        </button>
+      </div>
+    </aside>
+
+    <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+
+    <dialog id="documentDialog" class="document-dialog">
+      <div class="document-dialog-header">
+        <div>
+          <h2 id="documentDialogTitle">Tài liệu</h2>
+          <p id="documentDialogMeta"></p>
+        </div>
+        <button
+          class="icon-button"
+          id="documentDialogClose"
+          aria-label="Đóng tài liệu"
+        >
+          <svg><use href="#i-x" /></svg>
+        </button>
+      </div>
+      <p id="documentDialogState" class="document-dialog-state"></p>
+      <pre id="documentDialogContent"></pre>
+    </dialog>
+
+    <dialog
+      id="productGalleryDialog"
+      class="product-gallery-dialog"
+      aria-labelledby="productGalleryTitle"
+    >
+      <div class="product-gallery-header">
+        <div>
+          <h2 id="productGalleryTitle">Ảnh sản phẩm</h2>
+          <p id="productGalleryMeta"></p>
+        </div>
+        <button
+          class="icon-button"
+          id="productGalleryClose"
+          type="button"
+          aria-label="Đóng album ảnh"
+        >
+          <svg><use href="#i-x" /></svg>
+        </button>
+      </div>
+      <div id="productGalleryGrid" class="product-gallery-grid"></div>
+    </dialog>
+
+    <script src="/assets/marked.js"></script>
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>

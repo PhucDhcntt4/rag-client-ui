@@ -456,8 +456,13 @@ class ProductImageService:
             : self.settings.product_vision_verify_top_k
         ]
         LOGGER.debug(
-            "Ứng viên gửi Visual Verification: top5=[%s].",
-            self._format_top_matches(candidate_matches),
+            "Ứng viên gửi Visual Verification: total=%d, top%d=[%s].",
+            len(candidate_matches),
+            self.settings.product_vision_verify_top_k,
+            self._format_top_matches(
+                candidate_matches,
+                limit=self.settings.product_vision_verify_top_k,
+            ),
         )
         loaded = await asyncio.gather(
             *(
@@ -554,7 +559,7 @@ class ProductImageService:
         global_ranked = self._best_matches(global_points)
         LOGGER.debug(
             "Qdrant nhanh: points=%d, sku=%d, top1=%.3f, top2=%.3f, "
-            "top5=[%s].",
+            "top%d=[%s].",
             len(global_points),
             len(global_ranked),
             (
@@ -565,7 +570,11 @@ class ProductImageService:
                 float(global_ranked[1]["similarity"])
                 if len(global_ranked) > 1 else 0.0
             ),
-            self._format_top_matches(global_ranked),
+            self.settings.product_image_result_limit,
+            self._format_top_matches(
+                global_ranked,
+                limit=self.settings.product_image_result_limit,
+            ),
         )
         verification_data = data
         verification_media_type = normalized_media_type
@@ -629,11 +638,15 @@ class ProductImageService:
         ranked = self._best_matches(points)
         LOGGER.debug(
             "Xếp hạng sau truy xuất: points=%d, sku=%d, "
-            "top1=%.3f, top5=[%s].",
+            "top1=%.3f, top%d=[%s].",
             len(points),
             len(ranked),
             float(ranked[0]["similarity"]) if ranked else 0.0,
-            self._format_top_matches(ranked),
+            self.settings.product_image_result_limit,
+            self._format_top_matches(
+                ranked,
+                limit=self.settings.product_image_result_limit,
+            ),
         )
         preloaded_products: dict[str, ProductSource] = {}
         verification_low_confidence: bool | None = None
@@ -655,8 +668,12 @@ class ProductImageService:
                 verification_candidates=verification_candidates,
             )
             LOGGER.debug(
-                "Xếp hạng sau Visual Verification: top5=[%s].",
-                self._format_top_matches(ranked),
+                "Xếp hạng sau Visual Verification: top%d=[%s].",
+                self.settings.product_image_result_limit,
+                self._format_top_matches(
+                    ranked,
+                    limit=self.settings.product_image_result_limit,
+                ),
             )
 
         qualified = [

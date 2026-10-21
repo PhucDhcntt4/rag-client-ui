@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     product_vision_enabled: bool = False
     product_vision_model: str | None = None
     product_vision_timeout_seconds: float = Field(default=45, gt=0, le=180)
-    product_vision_verify_top_k: int = Field(default=5, ge=1, le=10)
+    product_vision_verify_top_k: int = Field(default=5, ge=1, le=20)
     product_vision_original_candidate_slots: int = Field(default=2, ge=1, le=10)
     product_visual_verification_enabled: bool = False
     product_reference_image_timeout_seconds: float = Field(
