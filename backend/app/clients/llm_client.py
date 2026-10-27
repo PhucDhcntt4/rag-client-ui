@@ -177,6 +177,51 @@ class LlmClient:
             "Không provider AI nào trả lời thành công. " + " | ".join(errors)
         )
 
+    async def generate_text(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        history: list[dict[str, str]],
+        provider: AiProvider | None = None,
+        temperature: float = 0.0,
+    ) -> LlmAnswer:
+        """Generate a short utility response without the RAG answer template."""
+
+        errors: list[str] = []
+        provider_chain = [provider] if provider else self.settings.ai_provider_chain()
+        for provider_name in provider_chain:
+            try:
+                config = self.settings.get_ai_provider_config(provider_name)
+                if config.provider == "gemini":
+                    answer = await self._generate_gemini(
+                        config=config,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        history=history,
+                        temperature=temperature,
+                    )
+                else:
+                    answer = await self._generate_openai(
+                        config=config,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        history=history,
+                        temperature=temperature,
+                    )
+                return LlmAnswer(
+                    text=answer,
+                    provider=config.provider,
+                    model=config.model,
+                )
+            except (ValueError, LlmServiceError) as exc:
+                errors.append(f"{provider_name}: {exc}")
+
+        raise LlmServiceError(
+            "Không provider AI nào phân tích ngữ cảnh thành công. "
+            + " | ".join(errors)
+        )
+
     async def _generate_openai(
         self,
         *,
@@ -184,6 +229,7 @@ class LlmClient:
         system_prompt: str,
         user_prompt: str,
         history: list[dict[str, str]],
+        temperature: float = 0.2,
     ) -> str:
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history)
@@ -197,7 +243,7 @@ class LlmClient:
             json={
                 "model": config.model,
                 "messages": messages,
-                "temperature": 0.2,
+                "temperature": temperature,
             },
         )
         try:
@@ -215,6 +261,7 @@ class LlmClient:
         system_prompt: str,
         user_prompt: str,
         history: list[dict[str, str]],
+        temperature: float = 0.2,
     ) -> str:
         contents = [
             {
@@ -234,7 +281,7 @@ class LlmClient:
             json={
                 "system_instruction": {"parts": [{"text": system_prompt}]},
                 "contents": contents,
-                "generationConfig": {"temperature": 0.2},
+                "generationConfig": {"temperature": temperature},
             },
         )
         try:

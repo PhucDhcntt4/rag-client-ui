@@ -14,7 +14,7 @@
     <title>Ms.Hài — Trợ lý AI nội bộ</title>
     <link rel="stylesheet" href="/assets/styles.css" />
   </head>
-  <body>
+  <body class="auth-pending">
     <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <symbol id="i-panel" viewBox="0 0 24 24">
         <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -113,6 +113,40 @@
         <path d="M12 4v15" />
         <path d="m6.5 13.5 5.5 5.5 5.5-5.5" />
       </symbol>
+      <symbol id="i-login" viewBox="0 0 24 24">
+        <path d="M10 17l5-5-5-5M15 12H3" />
+        <path d="M12 4h6a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6" />
+      </symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24">
+        <path d="m14 8 4 4-4 4M18 12H8" />
+        <path d="M11 5V4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6v-1" />
+      </symbol>
+      <symbol id="i-user" viewBox="0 0 24 24">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21a8 8 0 0 1 16 0" />
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24">
+        <rect x="5" y="10" width="14" height="11" rx="2" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+      </symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24">
+        <path d="M12 3 20 6v5c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6l8-3Z" />
+        <path d="m9 12 2 2 4-4" />
+      </symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+      </symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24">
+        <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+        <circle cx="12" cy="12" r="3" />
+      </symbol>
+      <symbol id="i-eye-off" viewBox="0 0 24 24">
+        <path
+          d="m3 3 18 18M10.6 5.1A11 11 0 0 1 12 5c6.4 0 10 7 10 7a16 16 0 0 1-3.5 4.1M6.1 6.1C3.5 8 2 12 2 12s3.6 7 10 7c1.7 0 3.2-.5 4.5-1.2"
+        />
+        <path d="M10 10a3 3 0 0 0 4 4" />
+      </symbol>
     </svg>
 
     <div class="app-shell">
@@ -145,6 +179,63 @@
             ><span class="status-dot"></span
             ><span id="modeLabel">Đang kết nối</span></span
           >
+          <div class="account-control" id="accountControl">
+            <button
+              class="header-login-button"
+              id="loginButton"
+              type="button"
+              aria-haspopup="dialog"
+              aria-controls="loginDialog"
+              aria-expanded="false"
+              title="Đăng nhập tài khoản nội bộ"
+            >
+              <svg class="account-button-icon" aria-hidden="true">
+                <use href="#i-user" />
+              </svg>
+              <span class="account-button-label">Đăng nhập</span>
+              <svg class="account-button-chevron hidden" aria-hidden="true">
+                <use href="#i-down" />
+              </svg>
+            </button>
+            <div
+              class="account-menu hidden"
+              id="accountMenu"
+              role="menu"
+              aria-label="Tài khoản"
+            >
+              <div class="account-profile">
+                <span class="account-avatar" id="accountAvatar">MH</span>
+                <span class="account-profile-copy">
+                  <strong id="accountFullName">Người dùng</strong>
+                  <small id="accountMeta">Tài khoản nội bộ</small>
+                </span>
+              </div>
+              <div class="account-menu-divider" aria-hidden="true"></div>
+              <button
+                class="account-logout-button"
+                id="logoutButton"
+                type="button"
+                role="menuitem"
+              >
+                <span class="account-logout-icon" aria-hidden="true">
+                  <svg><use href="#i-logout" /></svg>
+                </span>
+                <span>
+                  <strong>Đăng xuất</strong>
+                  <small>Kết thúc phiên trên thiết bị này</small>
+                </span>
+              </button>
+            </div>
+          </div>
+          <button
+            class="icon-button hidden"
+            id="adminButton"
+            type="button"
+            aria-label="Quản trị phân quyền"
+            title="Quản trị phân quyền"
+          >
+            <svg><use href="#i-shield" /></svg>
+          </button>
           <button
             class="header-new icon-button"
             id="newButton"
@@ -337,7 +428,11 @@
                     >
                   </div>
                 </section>
-                <label class="ai-provider-control" for="aiProviderSelect">
+                <label
+                  id="aiProviderControl"
+                  class="ai-provider-control"
+                  for="aiProviderSelect"
+                >
                   <span class="sr-only">Mô hình AI trả lời</span>
                   <select
                     id="aiProviderSelect"
@@ -415,6 +510,672 @@
         <p>Lịch sử được lưu trong trình duyệt này.</p>
       </div>
     </aside>
+
+    <section
+      id="adminDrawer"
+      class="admin-page hidden"
+      role="region"
+      aria-label="Quản trị phân quyền"
+    >
+      <header class="admin-page-header">
+        <div class="admin-page-header-inner">
+          <button
+            class="admin-back-button"
+            data-close="admin"
+            type="button"
+            aria-label="Quay lại trò chuyện"
+          >
+            <svg><use href="#i-arrow" /></svg>
+            <span>Quay lại</span>
+          </button>
+          <div class="admin-page-title">
+            <span class="admin-page-mark"
+              ><svg><use href="#i-shield" /></svg
+            ></span>
+            <div>
+              <h2>Quản trị phân quyền</h2>
+              <p>
+                Quản lý nhóm, phạm vi tài liệu và quyền truy cập của người dùng
+              </p>
+            </div>
+          </div>
+          <span class="admin-security-badge">
+            <svg><use href="#i-lock" /></svg>Chỉ dành cho Admin
+          </span>
+        </div>
+      </header>
+      <div class="permission-admin-layout">
+        <aside class="permission-admin-sidebar" aria-label="Danh mục quản trị">
+          <div class="permission-sidebar-heading">
+            <span>Cài đặt quản trị</span>
+            <small>Kiểm soát quyền truy cập</small>
+          </div>
+          <nav class="permission-sidebar-nav">
+            <button
+              id="backToPermissionGroupsButton"
+              class="permission-sidebar-item active"
+              type="button"
+              data-admin-panel="groups"
+            >
+              <span class="permission-sidebar-icon"
+                ><svg><use href="#i-shield" /></svg
+              ></span>
+              <span
+                ><strong>Nhóm quyền</strong
+                ><small>Phạm vi tài liệu</small></span
+              >
+            </button>
+            <button
+              id="showAdminUsersButton"
+              class="permission-sidebar-item"
+              type="button"
+              data-admin-panel="users"
+            >
+              <span class="permission-sidebar-icon"
+                ><svg><use href="#i-user" /></svg
+              ></span>
+              <span
+                ><strong>Người dùng</strong
+                ><small>Gán nhóm truy cập</small></span
+              >
+            </button>
+          </nav>
+          <div class="permission-sidebar-note">
+            <svg><use href="#i-info" /></svg>
+            <p>
+              Mỗi người dùng chỉ thuộc một nhóm quyền. Admin luôn có toàn quyền.
+            </p>
+          </div>
+        </aside>
+
+        <div class="permission-admin-workspace">
+          <main id="adminGroupsOverview" class="permission-page-main">
+            <section class="permission-list-card">
+              <div class="permission-list-heading">
+                <div>
+                  <h1>Danh sách nhóm quyền</h1>
+                  <p>
+                    Quản lý các nhóm quyền, số người dùng và phạm vi tài liệu
+                    được cấp.
+                  </p>
+                </div>
+                <div class="permission-list-actions">
+                  <label class="permission-search">
+                    <svg><use href="#i-search" /></svg>
+                    <input
+                      id="permissionGroupSearch"
+                      type="search"
+                      placeholder="Tìm kiếm nhóm quyền..."
+                      aria-label="Tìm kiếm nhóm quyền"
+                    />
+                  </label>
+                  <button
+                    id="openCreatePermissionGroupButton"
+                    class="permission-create-action"
+                    type="button"
+                  >
+                    <svg><use href="#i-plus" /></svg>Tạo group
+                  </button>
+                </div>
+              </div>
+              <div class="permission-table-wrap">
+                <table class="permission-table">
+                  <thead>
+                    <tr>
+                      <th>Tên nhóm</th>
+                      <th>Mô tả</th>
+                      <th>Số người dùng</th>
+                      <th>Phạm vi tài liệu</th>
+                      <th>Trạng thái</th>
+                      <th>Hành động</th>
+                    </tr>
+                  </thead>
+                  <tbody id="permissionGroupTableBody">
+                    <tr>
+                      <td colspan="6" class="permission-table-empty">
+                        Đang tải nhóm quyền…
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </main>
+
+          <main id="adminUsersOverview" class="permission-page-main hidden">
+            <section class="permission-list-card permission-users-card">
+              <div class="permission-list-heading">
+                <div>
+                  <h1>Người dùng</h1>
+                  <p>Quản lý tài khoản, nhóm quyền và trạng thái truy cập.</p>
+                </div>
+                <div class="permission-user-heading-actions">
+                  <span id="permissionUserTotal" class="admin-count-badge"
+                    >0 người dùng</span
+                  >
+                  <button
+                    id="openCreatePermissionUserButton"
+                    class="permission-create-action"
+                    type="button"
+                  >
+                    <svg><use href="#i-plus" /></svg>Tạo người dùng
+                  </button>
+                </div>
+              </div>
+              <div class="permission-user-filters">
+                <label class="permission-search permission-user-search">
+                  <svg><use href="#i-search" /></svg>
+                  <input
+                    id="permissionUserSearch"
+                    type="search"
+                    placeholder="Tìm kiếm tên, email hoặc tài khoản..."
+                    aria-label="Tìm kiếm người dùng"
+                  />
+                </label>
+                <label class="permission-filter-select">
+                  <span class="sr-only">Lọc theo phòng ban</span>
+                  <select
+                    id="permissionDepartmentFilter"
+                    aria-label="Lọc theo phòng ban"
+                  >
+                    <option value="">Tất cả phòng ban</option>
+                  </select>
+                </label>
+                <label class="permission-filter-select">
+                  <span class="sr-only">Lọc theo trạng thái</span>
+                  <select
+                    id="permissionStatusFilter"
+                    aria-label="Lọc theo trạng thái"
+                  >
+                    <option value="">Tất cả trạng thái</option>
+                    <option value="active">Hoạt động</option>
+                    <option value="locked">Đã khóa</option>
+                    <option value="disabled">Vô hiệu hóa</option>
+                  </select>
+                </label>
+              </div>
+              <div class="permission-table-wrap">
+                <table class="permission-table permission-users-table">
+                  <thead>
+                    <tr>
+                      <th>Người dùng</th>
+                      <th>Tên đăng nhập</th>
+                      <th>Phòng ban</th>
+                      <th>Nhóm quyền</th>
+                      <th>Trạng thái</th>
+                      <th>Lần đăng nhập cuối</th>
+                      <th>Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody id="permissionUserList">
+                    <tr>
+                      <td colspan="7" class="permission-table-empty">
+                        Đang tải người dùng…
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <footer class="permission-user-table-footer">
+                <span id="permissionUserResultCount">Đang tải dữ liệu…</span>
+              </footer>
+            </section>
+          </main>
+        </div>
+      </div>
+
+    </section>
+
+    <dialog id="permissionGroupDialog" class="permission-dialog">
+      <form id="permissionGroupForm" class="permission-dialog-shell">
+        <header class="permission-dialog-header">
+          <div>
+            <h2 id="permissionDialogTitle">Tạo nhóm quyền</h2>
+            <p id="permissionDialogDescription">
+              Thiết lập thông tin nhóm và phạm vi tài liệu được phép truy cập.
+            </p>
+          </div>
+          <button
+            id="closePermissionDialogButton"
+            class="permission-dialog-close"
+            type="button"
+            aria-label="Đóng"
+          >
+            <svg><use href="#i-x" /></svg>
+          </button>
+        </header>
+        <div class="permission-dialog-content">
+          <section class="permission-dialog-info">
+            <div class="permission-dialog-section-title">
+              <h3>Thông tin nhóm</h3>
+              <p>Cung cấp thông tin cơ bản về nhóm quyền.</p>
+            </div>
+            <label>
+              <span>Mã nhóm <b>*</b></span>
+              <input
+                id="permissionGroupCode"
+                maxlength="60"
+                required
+                pattern="[A-Za-z0-9_-]+"
+                placeholder="VÍ DỤ:NHAN_VIEN_KINH_DOANH"
+              />
+              <small id="permissionGroupCodeHint"
+                >Chỉ dùng chữ không dấu, số, dấu gạch ngang hoặc gạch
+                dưới.</small
+              >
+            </label>
+            <label>
+              <span>Tên nhóm <b>*</b></span>
+              <input
+                id="permissionGroupName"
+                maxlength="150"
+                required
+                placeholder="ví dụ:Nhân viên kinh doanh"
+              />
+            </label>
+            <label>
+              <span>Mô tả</span>
+              <textarea
+                id="permissionGroupDescription"
+                rows="4"
+                maxlength="1000"
+                placeholder="Mô tả phạm vi sử dụng của nhóm..."
+              ></textarea>
+              <small class="permission-character-count"
+                ><span id="permissionDescriptionCount">0</span>/1000</small
+              >
+            </label>
+            <label class="permission-active-toggle">
+              <input id="permissionGroupActive" type="checkbox" checked />
+              <span
+                ><strong>Nhóm đang hoạt động</strong
+                ><small
+                  >Khi tắt, người dùng trong nhóm sẽ không còn quyền truy cập
+                  theo nhóm này.</small
+                ></span
+              >
+            </label>
+            <button
+              id="assignUsersFromDialogButton"
+              class="permission-assign-card"
+              type="button"
+            >
+              <span class="permission-assign-icon"
+                ><svg><use href="#i-user" /></svg
+              ></span>
+              <span
+                ><strong>Người dùng trong nhóm</strong
+                ><small id="permissionDialogUserCount"
+                  >Chưa có người dùng</small
+                ></span
+              >
+              <span>Quản lý →</span>
+            </button>
+            <div
+              id="permissionDialogUserList"
+              class="permission-dialog-user-list"
+              aria-live="polite"
+            >
+              <p class="permission-dialog-user-empty">
+                Lưu nhóm trước để gán người dùng.
+              </p>
+            </div>
+          </section>
+          <section class="permission-dialog-scopes">
+            <div class="permission-dialog-section-title permission-scope-title">
+              <div>
+                <h3>Phạm vi tài liệu</h3>
+                <p>
+                  Chọn mục cha để cấp toàn bộ nhóm con, hoặc chỉ chọn từng mục
+                  con cần thiết.
+                </p>
+              </div>
+              <span id="permissionDialogScopeCount" class="admin-count-badge"
+                >0 mục</span
+              >
+            </div>
+            <div id="permissionDialogScopeTree" class="permission-scope-tree">
+              <p class="permission-table-empty">Đang tải phạm vi tài liệu…</p>
+            </div>
+          </section>
+        </div>
+        <footer class="permission-dialog-footer">
+          <button
+            id="deletePermissionGroupButton"
+            class="permission-dialog-delete hidden"
+            type="button"
+          >
+            <svg><use href="#i-trash"></use></svg>
+            Xóa nhóm
+          </button>
+
+          <button
+            id="cancelPermissionDialogButton"
+            class="permission-dialog-cancel"
+            type="button"
+          >
+            Hủy
+          </button>
+
+          <button
+            id="savePermissionGroupButton"
+            class="permission-dialog-save"
+            type="submit"
+          >
+            Tạo nhóm
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog
+      id="permissionUserDialog"
+      class="permission-dialog permission-user-dialog"
+    >
+      <form id="permissionUserForm" class="permission-dialog-shell">
+        <header class="permission-dialog-header">
+          <div>
+            <h2>Chỉnh sửa người dùng</h2>
+            <p>Cập nhật thông tin, vai trò, trạng thái và nhóm quyền.</p>
+          </div>
+          <button
+            id="closePermissionUserDialogButton"
+            class="permission-dialog-close"
+            type="button"
+            aria-label="Đóng"
+          >
+            <svg><use href="#i-x" /></svg>
+          </button>
+        </header>
+        <div class="permission-user-dialog-content">
+          <section class="permission-user-dialog-info">
+            <div class="permission-dialog-section-title">
+              <h3>Thông tin người dùng</h3>
+              <p>Chỉnh sửa thông tin tài khoản và trạng thái truy cập.</p>
+            </div>
+            <div class="permission-user-dialog-profile">
+              <span
+                id="permissionUserDialogAvatar"
+                class="permission-user-dialog-avatar"
+                >U</span
+              >
+              <span
+                ><strong id="permissionUserDialogName">Người dùng</strong
+                ><small id="permissionUserDialogRole">Nhân viên</small></span
+              >
+            </div>
+            <label
+              >Họ tên<input
+                id="permissionUserFullName"
+                maxlength="150"
+                required
+            /></label>
+            <label
+              >Tên đăng nhập<input
+                id="permissionUserUsername"
+                maxlength="100"
+                pattern="[A-Za-z0-9._-]+"
+                autocomplete="username"
+                required
+            /></label>
+            <label
+              >Email<input
+                id="permissionUserEmail"
+                type="email"
+                maxlength="255"
+                autocomplete="email"
+            /></label>
+            <label
+              >Phòng ban<input
+                id="permissionUserDepartment"
+                maxlength="150"
+            /></label>
+            <label
+              >Vai trò<select id="permissionUserRole">
+                <option value="employee">Nhân viên</option>
+                <option value="manager">Quản lý</option>
+                <option value="admin">Admin</option>
+              </select></label
+            >
+            <label class="permission-user-status-toggle">
+              <input
+                id="permissionUserActive"
+                type="checkbox"
+                role="switch"
+                aria-label="Bật hoặc tắt tài khoản"
+              />
+              <span class="permission-user-status-track" aria-hidden="true"
+                ><i></i
+              ></span>
+              <span class="permission-user-status-copy">
+                <strong id="permissionUserDialogStatus">Tài khoản đang hoạt động</strong>
+                <small id="permissionUserStatusHint"
+                  >Người dùng có thể đăng nhập và sử dụng hệ thống.</small
+                >
+              </span>
+            </label>
+            <button
+              id="togglePermissionPasswordResetButton"
+              class="permission-password-reset-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="permissionPasswordResetPanel"
+            >
+              <svg><use href="#i-lock" /></svg>
+              <span
+                ><strong>Đặt lại mật khẩu</strong
+                ><small>Thu hồi các phiên đăng nhập cũ của tài khoản.</small></span
+              >
+            </button>
+            <div id="permissionPasswordResetPanel" class="permission-password-reset-panel hidden">
+              <label
+                >Mật khẩu mới<input
+                  id="permissionNewPassword"
+                  type="password"
+                  minlength="4"
+                  maxlength="256"
+                  autocomplete="new-password"
+              /></label>
+              <label
+                >Xác nhận mật khẩu<input
+                  id="permissionConfirmPassword"
+                  type="password"
+                  minlength="4"
+                  maxlength="256"
+                  autocomplete="new-password"
+              /></label>
+              <button
+                id="confirmPermissionPasswordResetButton"
+                class="permission-password-reset-confirm"
+                type="button"
+              >
+                Xác nhận đặt lại
+              </button>
+            </div>
+          </section>
+          <section class="permission-user-dialog-groups">
+            <div class="permission-dialog-section-title">
+              <h3>Nhóm quyền</h3>
+              <p id="permissionUserGroupHint">Mỗi người dùng chỉ thuộc một nhóm quyền tại một thời điểm.</p>
+            </div>
+            <label class="permission-search permission-user-group-search">
+              <svg><use href="#i-search" /></svg>
+              <input
+                id="permissionUserGroupSearch"
+                type="search"
+                placeholder="Tìm kiếm mã hoặc tên nhóm..."
+                aria-label="Tìm kiếm nhóm quyền"
+              />
+            </label>
+            <div
+              id="permissionUserGroupList"
+              class="permission-user-group-list"
+            ></div>
+          </section>
+        </div>
+        <footer class="permission-dialog-footer">
+          <button
+            id="cancelPermissionUserDialogButton"
+            class="permission-dialog-cancel"
+            type="button"
+          >
+            Hủy
+          </button>
+          <button
+            id="savePermissionUserButton"
+            class="permission-dialog-save"
+            type="submit"
+          >
+            Lưu thay đổi
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog
+      id="createPermissionUserDialog"
+      class="permission-dialog create-permission-user-dialog"
+    >
+      <form id="createPermissionUserForm" class="permission-dialog-shell">
+        <header class="permission-dialog-header">
+          <div>
+            <h2>Tạo người dùng</h2>
+            <p>Tạo tài khoản đăng nhập và gán nhóm quyền ban đầu.</p>
+          </div>
+          <button
+            id="closeCreatePermissionUserDialogButton"
+            class="permission-dialog-close"
+            type="button"
+            aria-label="Đóng"
+          >
+            <svg><use href="#i-x" /></svg>
+          </button>
+        </header>
+
+        <div class="create-permission-user-content">
+          <section class="create-user-form-section">
+            <div class="permission-dialog-section-title">
+              <h3>Thông tin tài khoản</h3>
+              <p>
+                Tên đăng nhập không dùng khoảng trắng; mật khẩu có ít nhất 4 ký
+                tự.
+              </p>
+            </div>
+            <div class="create-user-form-grid">
+              <label class="create-user-field create-user-field-wide">
+                <span>Họ tên <em>*</em></span>
+                <input
+                  id="createUserFullName"
+                  name="full_name"
+                  type="text"
+                  maxlength="150"
+                  autocomplete="name"
+                  required
+                />
+              </label>
+              <label class="create-user-field">
+                <span>Tên đăng nhập <em>*</em></span>
+                <input
+                  id="createUserUsername"
+                  name="username"
+                  type="text"
+                  maxlength="100"
+                  pattern="[A-Za-z0-9._-]+"
+                  autocomplete="username"
+                  required
+                />
+              </label>
+              <label class="create-user-field">
+                <span>Mật khẩu <em>*</em></span>
+                <input
+                  id="createUserPassword"
+                  name="password"
+                  type="password"
+                  minlength="4"
+                  maxlength="256"
+                  autocomplete="new-password"
+                  required
+                />
+              </label>
+              <label class="create-user-field">
+                <span>Email</span>
+                <input
+                  id="createUserEmail"
+                  name="email"
+                  type="email"
+                  maxlength="255"
+                  autocomplete="email"
+                />
+              </label>
+              <label class="create-user-field">
+                <span>Phòng ban</span>
+                <input
+                  id="createUserDepartment"
+                  name="department"
+                  type="text"
+                  maxlength="150"
+                  autocomplete="organization-title"
+                />
+              </label>
+              <label class="create-user-field">
+                <span>Vai trò</span>
+                <select id="createUserRole" name="role">
+                  <option value="employee">Nhân viên</option>
+                  <option value="manager">Quản lý</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+              <label class="create-user-field">
+                <span>Trạng thái</span>
+                <select id="createUserStatus" name="account_status">
+                  <option value="active">Hoạt động</option>
+                  <option value="disabled">Vô hiệu hóa</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="create-user-group-section">
+            <div class="permission-dialog-section-title">
+              <h3>Nhóm quyền</h3>
+              <p>
+                Mỗi người dùng chỉ thuộc một nhóm. Có thể để trống và gán sau.
+              </p>
+            </div>
+            <label class="create-user-field create-user-field-wide">
+              <span>Nhóm được phép truy cập</span>
+              <select id="createUserPermissionGroup" name="permission_group_id">
+                <option value="">Chưa gán nhóm</option>
+              </select>
+            </label>
+            <div class="create-user-access-note">
+              <svg><use href="#i-info" /></svg>
+              <p>
+                Tài khoản chưa gán nhóm vẫn có thể đăng nhập nhưng không được
+                tra cứu tài liệu.
+              </p>
+            </div>
+          </section>
+        </div>
+
+        <footer class="permission-dialog-footer">
+          <button
+            id="cancelCreatePermissionUserButton"
+            class="permission-dialog-cancel"
+            type="button"
+          >
+            Hủy
+          </button>
+          <button
+            id="saveCreatePermissionUserButton"
+            class="permission-dialog-save"
+            type="submit"
+          >
+            Tạo người dùng
+          </button>
+        </footer>
+      </form>
+    </dialog>
 
     <aside
       id="documentsDrawer"
@@ -563,6 +1324,115 @@
 
     <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
 
+    <!-- Modal xác thực tài khoản nội bộ. -->
+    <dialog
+      id="loginDialog"
+      class="login-dialog"
+      aria-labelledby="loginDialogTitle"
+      aria-describedby="loginDialogDescription"
+    >
+      <div class="login-modal">
+        <div class="login-modal-head">
+          <button
+            id="loginCloseButton"
+            class="login-close-button"
+            type="button"
+            aria-label="Đóng đăng nhập"
+            title="Đóng"
+          >
+            <svg aria-hidden="true"><use href="#i-x" /></svg>
+          </button>
+        </div>
+
+        <div class="login-welcome">
+          <span class="login-welcome-icon" aria-hidden="true"
+            ><svg><use href="#i-spark" /></svg
+          ></span>
+          <h2 id="loginDialogTitle">Chào mừng trở lại</h2>
+          <p id="loginDialogDescription">
+            Đăng nhập để tiếp tục cùng <strong>Ms.Hài</strong> — trợ lý AI dành
+            cho đội ngũ nội bộ.
+          </p>
+        </div>
+
+        <form id="loginForm" class="login-form" autocomplete="on">
+          <div class="login-form-group">
+            <label for="loginUsername">Email hoặc tên đăng nhập</label>
+            <div class="login-field">
+              <svg class="login-field-icon" aria-hidden="true">
+                <use href="#i-user" />
+              </svg>
+              <input
+                id="loginUsername"
+                name="username"
+                type="text"
+                placeholder="Nhập tài khoản của bạn"
+                autocomplete="username"
+                autocapitalize="none"
+                spellcheck="false"
+                maxlength="254"
+                required
+              />
+            </div>
+          </div>
+          <div class="login-form-group">
+            <div class="login-label-row">
+              <label for="loginPassword">Mật khẩu</label>
+            </div>
+            <div class="login-field">
+              <svg class="login-field-icon" aria-hidden="true">
+                <use href="#i-lock" />
+              </svg>
+              <input
+                id="loginPassword"
+                name="password"
+                type="password"
+                placeholder="Nhập mật khẩu"
+                autocomplete="current-password"
+                required
+              />
+              <button
+                id="loginTogglePassword"
+                class="login-password-toggle"
+                type="button"
+                aria-label="Hiện mật khẩu"
+                aria-pressed="false"
+                title="Hiện mật khẩu"
+              >
+                <svg aria-hidden="true"><use href="#i-eye" /></svg>
+              </button>
+            </div>
+          </div>
+          <label class="login-remember">
+            <input type="checkbox" id="loginRemember" name="remember" />
+            <span>Ghi nhớ tên đăng nhập</span>
+          </label>
+          <p
+            id="loginFormMessage"
+            class="login-form-message hidden"
+            role="alert"
+            aria-live="polite"
+          ></p>
+          <button
+            id="loginSubmitButton"
+            class="login-submit-button"
+            type="submit"
+          >
+            <span>Đăng nhập</span>
+            <svg aria-hidden="true"><use href="#i-arrow" /></svg>
+          </button>
+        </form>
+
+        <div class="login-modal-footer">
+          <span class="login-footer-divider">TRUY CẬP AN TOÀN</span>
+          <p>
+            <svg aria-hidden="true"><use href="#i-lock" /></svg> Chưa có tài
+            khoản? Liên hệ quản trị viên để được cấp quyền.
+          </p>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="documentDialog" class="document-dialog">
       <div class="document-dialog-header">
         <div>
@@ -604,6 +1474,9 @@
     </dialog>
 
     <script src="/assets/marked.js"></script>
-    <script type="module" src="/js/app.js"></script>
+    <script
+      type="module"
+      src="/js/app.js?v=20261022-chat-history-4"
+    ></script>
   </body>
 </html>

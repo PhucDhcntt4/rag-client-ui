@@ -1,4 +1,5 @@
 
+import asyncio
 import re
 from pathlib import Path
 
@@ -6,8 +7,10 @@ from app.clients.llm_client import LlmAnswer, LlmClient, LlmServiceError
 from app.clients.rag_client import RagClient
 from app.config import Settings
 from app.schemas import ChatRequest, ChatResponse, ChatSource, SourceAsset
+from app.services.conversation_resolver import resolve_conversation_query
+from app.services.access_control import DocumentAccess
 from app.services.product_service import ProductService, build_product_context
-from app.services.query_router import detect_data_source
+from app.services.query_router import resolve_product_query
 
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "answer.txt"
@@ -68,7 +71,11 @@ class ChatService:
             candidate_page_size=settings.product_candidate_page_size,
         )
 
-    async def answer(self, request: ChatRequest) -> ChatResponse:
+    async def answer(
+        self,
+        request: ChatRequest,
+        access: DocumentAccess | None = None,
+    ) -> ChatResponse:
         requested_provider = (
             request.ai_provider or self.settings.primary_ai_provider
         )
@@ -80,26 +87,36 @@ class ChatService:
             raise LlmServiceError(str(exc)) from exc
 
         data_source = request.data_source
+        retrieval_query = request.query
         if data_source == "auto":
-            data_source = detect_data_source(
-                request.query,
-                request.history,
+            resolution = await resolve_conversation_query(
+                query=request.query,
+                history=request.history,
+                llm_client=self.llm_client,
+                provider=request.ai_provider,
                 has_document_scope=bool(
                     request.doc_type_id or request.group_ids
                 ),
+            )
+            data_source = resolution.data_source
+            retrieval_query = resolution.standalone_query
+        elif data_source == "products":
+            retrieval_query = resolve_product_query(
+                request.query,
+                request.history,
             )
 
         if data_source == "products":
             return await self._answer_products(
                 request,
                 provider_name=llm_config.provider,
+                retrieval_query=retrieval_query,
             )
 
-        retrieval = await self.rag_client.search(
-            request.query,
-            doc_type_id=request.doc_type_id,
-            group_ids=request.group_ids,
-            top_k=request.top_k,
+        retrieval = await self._search_documents(
+            request,
+            retrieval_query,
+            access,
         )
         if not retrieval["success"] or retrieval["status"] == "knowledge_not_found":
             return ChatResponse(
@@ -168,14 +185,138 @@ class ChatService:
             llm_provider=answer_provider,
         )
 
+    async def _search_documents(
+        self,
+        request: ChatRequest,
+        query: str,
+        access: DocumentAccess | None,
+    ) -> dict:
+        if access is None or access.unrestricted:
+            return await self.rag_client.search(
+                query,
+                doc_type_id=request.doc_type_id,
+                group_ids=request.group_ids,
+                top_k=request.top_k,
+            )
+        if not access.has_access:
+            return {
+                "success": False,
+                "status": "knowledge_not_found",
+                "content": "",
+                "sources": [],
+                "elapsed_ms": 0,
+            }
+
+        if request.doc_type_id is not None:
+            if request.doc_type_id in access.doc_type_ids:
+                return await self.rag_client.search(
+                    query,
+                    doc_type_id=request.doc_type_id,
+                    group_ids=request.group_ids,
+                    top_k=request.top_k,
+                )
+
+            allowed_groups = access.groups_for_doc_type(request.doc_type_id)
+            requested_groups = set(request.group_ids or allowed_groups)
+            if not requested_groups or not requested_groups.issubset(
+                allowed_groups
+            ):
+                return {
+                    "success": False,
+                    "status": "knowledge_not_found",
+                    "content": "",
+                    "sources": [],
+                    "elapsed_ms": 0,
+                }
+            return await self.rag_client.search(
+                query,
+                doc_type_id=request.doc_type_id,
+                group_ids=sorted(requested_groups),
+                top_k=request.top_k,
+            )
+
+        if request.group_ids:
+            requested_groups = set(request.group_ids)
+            if not requested_groups.issubset(access.group_ids):
+                return {
+                    "success": False,
+                    "status": "knowledge_not_found",
+                    "content": "",
+                    "sources": [],
+                    "elapsed_ms": 0,
+                }
+            return await self.rag_client.search(
+                query,
+                group_ids=sorted(requested_groups),
+                top_k=request.top_k,
+            )
+
+        searches = [
+            self.rag_client.search(
+                query,
+                doc_type_id=doc_type_id,
+                top_k=request.top_k,
+            )
+            for doc_type_id in sorted(access.doc_type_ids)
+        ]
+        if access.group_ids:
+            searches.append(
+                self.rag_client.search(
+                    query,
+                    group_ids=sorted(access.group_ids),
+                    top_k=request.top_k,
+                )
+            )
+        results = await asyncio.gather(*searches)
+        successful = [
+            result
+            for result in results
+            if result.get("success")
+            and result.get("status") != "knowledge_not_found"
+        ]
+        if not successful:
+            return {
+                "success": False,
+                "status": "knowledge_not_found",
+                "content": "",
+                "sources": [],
+                "elapsed_ms": sum(
+                    float(result.get("elapsed_ms") or 0)
+                    for result in results
+                ),
+            }
+        return {
+            "success": True,
+            "status": "knowledge_found",
+            "content": "\n\n".join(
+                str(result.get("content") or "")
+                for result in successful
+                if result.get("content")
+            ),
+            "sources": [
+                source
+                for result in successful
+                for source in result.get("sources", [])
+            ],
+            "elapsed_ms": sum(
+                float(result.get("elapsed_ms") or 0)
+                for result in results
+            ),
+        }
+
     async def _answer_products(
         self,
         request: ChatRequest,
         *,
         provider_name,
+        retrieval_query: str | None = None,
     ) -> ChatResponse:
+        product_query = retrieval_query or resolve_product_query(
+            request.query,
+            request.history,
+        )
         search_result = await self.product_service.search_for_question(
-            request.query
+            product_query
         )
         products = search_result.products
         if not products:
@@ -191,10 +332,14 @@ class ChatService:
                 llm_provider=provider_name,
             )
 
+        answer_context = await self.product_service.load_latest_answer_context(
+            product_query,
+            search_result,
+        )
         context = build_product_context(
-            products,
-            request.query,
-            search_result.result,
+            answer_context.products,
+            product_query,
+            answer_context.result,
         )
         generation = await self.llm_client.generate_answer(
             system_prompt=load_product_prompt(),

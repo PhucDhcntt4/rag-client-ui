@@ -13,3 +13,6 @@ Pillow>=10.4,<13
 open_clip_torch>=2.29,<4
 huggingface-hub>=0.25,<2
 safetensors>=0.4.5,<1
+psycopg[binary]>=3.2,<4
+pwdlib[argon2]>=0.2,<1
+PyJWT>=2.10,<3

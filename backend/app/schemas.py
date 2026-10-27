@@ -1,9 +1,10 @@
-from typing import Literal
+from datetime import datetime
+from typing import Literal, Any
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator # type: ignore
+from pydantic import BaseModel, ConfigDict, Field, model_validator  # type: ignore
 
 from app.config import AiProvider
-
 
 MAX_HISTORY_MESSAGES = 12
 MAX_HISTORY_CHARACTERS = 24_000
@@ -23,6 +24,13 @@ class ChatMessage(ApiModel):
 
 class ChatRequest(ApiModel):
     query: str = Field(min_length=1, max_length=4_000)
+    conversation_id: UUID | None = None
+    message_id: UUID | None = None
+    conversation_title: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
     data_source: Literal["auto", "documents", "products"] = "auto"
     history: list[ChatMessage] = Field(
         default_factory=list,
@@ -163,6 +171,9 @@ class ProductImageSearchResponse(ApiModel):
 class ChatResponse(ApiModel):
     status: Literal["answered", "insufficient_context"]
     answer: str
+    conversation_id: UUID | None = None
+    user_message_id: UUID | None = None
+    assistant_message_id: UUID | None = None
     data_source: Literal["documents", "products"] = "documents"
     sources: list[ChatSource] = Field(default_factory=list)
     product_sources: list[ProductSource] = Field(default_factory=list)
@@ -232,3 +243,176 @@ class TaxonomyDocType(ApiModel):
 
 class TaxonomyResponse(ApiModel):
     doc_types: list[TaxonomyDocType]
+
+
+class LoginRequest(ApiModel):
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=4, max_length=128)
+
+
+class AuthUser(ApiModel):
+    id: UUID
+    username: str
+    full_name: str
+    email: str | None = None
+    department: str | None = None
+    role: Literal["admin", "manager", "employee"]
+    permission_group_id: UUID | None = None
+
+
+class AuthResponse(ApiModel):
+    user: AuthUser
+
+
+class LogoutResponse(ApiModel):
+    message: str
+
+
+class PermissionScope(ApiModel):
+    scope_type: Literal["all", "doc_type", "doc_group"]
+    doc_type_id: int | None = None
+    doc_group_id: int | None = None
+
+    @model_validator(mode="after")
+    def validate_scope_target(self):
+        valid = (
+            self.scope_type == "all"
+            and self.doc_type_id is None
+            and self.doc_group_id is None
+        ) or (
+            self.scope_type == "doc_type"
+            and self.doc_type_id is not None
+            and self.doc_group_id is None
+        ) or (
+            self.scope_type == "doc_group"
+            and self.doc_type_id is None
+            and self.doc_group_id is not None
+        )
+        if not valid:
+            raise ValueError("Phạm vi tài liệu không hợp lệ")
+        return self
+
+
+class PermissionGroupCreate(ApiModel):
+    code: str = Field(min_length=1, max_length=60, pattern=r"^[A-Za-z0-9_-]+$")
+    name: str = Field(min_length=1, max_length=150)
+    description: str | None = Field(default=None, max_length=1000)
+
+
+class PermissionGroupUpdate(ApiModel):
+    name: str = Field(min_length=1, max_length=150)
+    description: str | None = Field(default=None, max_length=1000)
+    is_active: bool = True
+
+
+class PermissionScopesUpdate(ApiModel):
+    scopes: list[PermissionScope] = Field(default_factory=list, max_length=500)
+
+
+class PermissionGroupInfo(ApiModel):
+    id: UUID
+    code: str
+    name: str
+    description: str | None = None
+    is_active: bool
+    user_count: int = 0
+    scopes: list[PermissionScope] = Field(default_factory=list)
+
+
+class PermissionGroupsResponse(ApiModel):
+    groups: list[PermissionGroupInfo] = Field(default_factory=list)
+
+
+class AdminUserCreate(ApiModel):
+    username: str = Field(
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
+    password: str = Field(min_length=4, max_length=256)
+    full_name: str = Field(min_length=1, max_length=150)
+    email: str | None = Field(default=None, max_length=255)
+    department: str | None = Field(default=None, max_length=150)
+    role: Literal["admin", "manager", "employee"] = "employee"
+    account_status: Literal["active", "disabled"] = "active"
+    permission_group_id: UUID | None = None
+
+
+class AdminUserUpdate(ApiModel):
+    username: str = Field(
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
+    full_name: str = Field(min_length=1, max_length=150)
+    email: str | None = Field(default=None, max_length=255)
+    department: str | None = Field(default=None, max_length=150)
+    role: Literal["admin", "manager", "employee"]
+    account_status: Literal["active", "disabled"]
+    permission_group_id: UUID | None = None
+
+
+class AdminUserPasswordReset(ApiModel):
+    new_password: str = Field(min_length=4, max_length=256)
+
+
+class AdminUserInfo(ApiModel):
+    id: UUID
+    username: str
+    full_name: str
+    email: str | None = None
+    department: str | None = None
+    role: Literal["admin", "manager", "employee"]
+    account_status: Literal["active", "locked", "disabled"]
+    permission_group_id: UUID | None = None
+    permission_group_name: str | None = None
+    last_login_at: datetime | None = None
+
+
+class AdminUsersResponse(ApiModel):
+    users: list[AdminUserInfo] = Field(default_factory=list)
+
+
+class UserPermissionGroupUpdate(ApiModel):
+    permission_group_id: UUID | None = None
+
+
+class AdminMutationResponse(ApiModel):
+    message: str
+
+class ConversationMessageInfo(ApiModel):
+    id: UUID
+    role: Literal["user", "assistant"]
+    content: str
+    data_source: str | None = None
+    ai_provider: str | None = None
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class ConversationSummary(ApiModel):
+    id: UUID
+    title: str
+    message_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationListResponse(ApiModel):
+    conversations: list[ConversationSummary] = Field(default_factory=list)
+
+
+class ConversationDetail(ConversationSummary):
+    messages: list[ConversationMessageInfo] = Field(default_factory=list)
+
+
+class ConversationMessageCreate(ApiModel):
+    id: UUID | None = None
+    conversation_title: str = Field(min_length=1, max_length=255)
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=20_000)
+    data_source: str | None = Field(default=None, max_length=40)
+    ai_provider: str | None = Field(default=None, max_length=80)
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)

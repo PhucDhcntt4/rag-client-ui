@@ -1,14 +1,31 @@
 import {
+  clearConversations,
+  createAdminUser,
+  createPermissionGroup,
+  deletePermissionGroup,
+  deleteConversation,
+  getConversation,
+  getConversations,
   getDocument,
   getDocumentBySourceKey,
   getDocuments,
   getHealth,
   getAiProviders,
+  getAdminUsers,
+  getCurrentUser,
+  getPermissionGroups,
   getLatestProductDetails,
+  login,
+  logout,
+  resetAdminUserPassword,
   searchProductsByImage,
+  saveConversationMessage,
   getTaxonomy,
   sendChat,
-} from "./api.js";
+  updateAdminUser,
+  updatePermissionGroup,
+  updatePermissionScopes,
+} from "./api.js?v=20261022-chat-history-4";
 
 const STORE_KEY = "rag-client-conversations-v2";
 const PREF_KEY = "rag-client-preferences-v2";
@@ -64,6 +81,13 @@ const app = {
   defaultAiProvider: "",
   productImageFile: null,
   productImagePreviewUrl: "",
+  currentUser: null,
+  authBusy: false,
+  adminGroups: [],
+  adminUsers: [],
+  adminEditingGroupId: "",
+  adminEditingUserId: "",
+  adminLoaded: false,
 };
 
 function loadJSON(key, fallback) {
@@ -81,7 +105,7 @@ function saveJSON(key, value) {
 }
 
 function newId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return crypto.randomUUID();
 }
 
 function createChat() {
@@ -91,6 +115,7 @@ function createChat() {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     messages: [],
+    persisted: false,
   };
 }
 
@@ -98,12 +123,125 @@ function currentChat() {
   return app.chats.find((chat) => chat.id === app.currentId);
 }
 
+function conversationStoreKey() {
+  return app.currentUser?.id ? `${STORE_KEY}:${app.currentUser.id}` : "";
+}
+
+function hydrateStoredMessage(message) {
+  const metadata = message.metadata || {};
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    dataSource: message.data_source || "documents",
+    sources: message.sources || [],
+    productSources: metadata.product_sources || [],
+    productResult: metadata.product_result || null,
+    retrievedContent: metadata.retrieved_content || "",
+    query: metadata.query || "",
+    scope: metadata.scope || "",
+    imageSearch: Boolean(metadata.image_search),
+    imageSearchLowConfidence: Boolean(metadata.image_search_low_confidence),
+    attachmentName: metadata.attachment_name || "",
+    attachmentPreview: metadata.attachment_url || "",
+    createdAt: message.created_at,
+  };
+}
+
+async function ensureConversationLoaded(chat) {
+  if (!chat?.persisted || Array.isArray(chat.messages)) return;
+  const detail = await getConversation(chat.id);
+  chat.title = detail.title;
+  chat.createdAt = detail.created_at;
+  chat.updatedAt = detail.updated_at;
+  chat.messages = (detail.messages || []).map(hydrateStoredMessage);
+}
+
+async function persistClientMessage(chat, message) {
+  if (!chat || !message) return null;
+  message.id ||= newId();
+  const stored = await saveConversationMessage(chat.id, {
+    id: message.id,
+    conversation_title: chat.title,
+    role: message.role,
+    content: message.content,
+    data_source: message.dataSource || null,
+    ai_provider: message.aiProvider || null,
+    sources: message.sources || [],
+    metadata: {
+      product_sources: message.productSources || [],
+      product_result: message.productResult || null,
+      retrieved_content: message.retrievedContent || "",
+      query: message.query || "",
+      scope: message.scope || "",
+      image_search: Boolean(message.imageSearch),
+      image_search_low_confidence: Boolean(message.imageSearchLowConfidence),
+      attachment_name: message.attachmentName || "",
+    },
+  });
+  message.id = stored.id;
+  message.createdAt = stored.created_at;
+  chat.persisted = true;
+  return stored;
+}
+
+async function loadUserChats() {
+  const key = conversationStoreKey();
+  const saved = key ? loadJSON(key, {}) : {};
+  const cachedChats = (Array.isArray(saved.chats) ? saved.chats : []).map(
+    (chat) => ({
+      ...chat,
+      id: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        chat.id || "",
+      )
+        ? chat.id
+        : newId(),
+    }),
+  );
+  try {
+    const result = await getConversations(20);
+    const remoteIds = new Set();
+    app.chats = (result.conversations || []).map((conversation) => {
+      remoteIds.add(conversation.id);
+      return {
+        id: conversation.id,
+        title: conversation.title,
+        createdAt: conversation.created_at,
+        updatedAt: conversation.updated_at,
+        messages: null,
+        persisted: true,
+      };
+    });
+    for (const cached of cachedChats) {
+      if (!remoteIds.has(cached.id)) {
+        app.chats.push({ ...cached, persisted: false });
+      }
+    }
+  } catch (error) {
+    app.chats = cachedChats;
+    toast(`Không tải được lịch sử từ máy chủ: ${error.message}`);
+  }
+  if (!app.chats.length) app.chats.push(createChat());
+  app.currentId = app.chats.some((chat) => chat.id === saved.currentId)
+    ? saved.currentId
+    : app.chats[0].id;
+  try {
+    await ensureConversationLoaded(currentChat());
+  } catch (error) {
+    toast(`Không tải được cuộc trò chuyện: ${error.message}`);
+  }
+  renderHistory();
+  renderMessages();
+}
+
 function storeChats() {
-  app.chats = app.chats.slice(0, 20).map((chat) => ({
+  const key = conversationStoreKey();
+  if (!key) return;
+  const chats = app.chats.slice(0, 20).map((chat) => ({
     ...chat,
-    messages: chat.messages.slice(-70),
+    messages: Array.isArray(chat.messages) ? chat.messages.slice(-70) : [],
   }));
-  saveJSON(STORE_KEY, { chats: app.chats, currentId: app.currentId });
+  saveJSON(key, { chats, currentId: app.currentId });
 }
 
 function icon(name) {
@@ -219,6 +357,7 @@ function syncDataSource() {
   $("documentsButton").classList.toggle("hidden", !DEBUG_MODE);
   $("scopePanel").classList.remove("hidden");
   $("productImageButton").classList.remove("hidden");
+  $("aiProviderControl").classList.toggle("hidden", !DEBUG_MODE);
   if (!app.productImageFile) {
     $("messageInput").placeholder =
       "Hỏi về tài liệu, sản phẩm, tồn kho hoặc gửi hình ảnh...";
@@ -233,9 +372,7 @@ async function loadAiProviders() {
   const select = $("aiProviderSelect");
   try {
     const result = await getAiProviders();
-    app.aiProviders = Array.isArray(result.providers)
-      ? result.providers
-      : [];
+    app.aiProviders = Array.isArray(result.providers) ? result.providers : [];
     app.defaultAiProvider = result.default || "";
     select.replaceChildren();
     for (const provider of app.aiProviders) {
@@ -348,10 +485,7 @@ function visibleMessageContent(message) {
   if (DEBUG_MODE || message.dataSource === "products") return content;
 
   return content
-    .replace(
-      /\s*\[(?:S\d+(?:\s*(?:[,;/-]|\s)\s*S\d+)*)\]/gi,
-      "",
-    )
+    .replace(/\s*\[(?:S\d+(?:\s*(?:[,;/-]|\s)\s*S\d+)*)\]/gi, "")
     .replace(/[ \t]+([,.;:!?])/g, "$1");
 }
 
@@ -360,6 +494,16 @@ function formatTime(value) {
   return new Intl.DateTimeFormat("vi-VN", {
     hour: "2-digit",
     minute: "2-digit",
+  }).format(date);
+}
+
+function formatAdminDateTime(value) {
+  if (!value) return "Chưa đăng nhập";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Không xác định";
+  return new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "short",
+    timeStyle: "short",
   }).format(date);
 }
 
@@ -416,7 +560,8 @@ function buildAssetGallery(sources, { showDebugMetadata = false } = {}) {
     );
 
     const caption = document.createElement("figcaption");
-    const captionText = asset.caption || asset.source.title || "Hình ảnh tài liệu";
+    const captionText =
+      asset.caption || asset.source.title || "Hình ảnh tài liệu";
     caption.textContent = showDebugMetadata
       ? `[${asset.source.citation}] ${captionText} — Trang ${asset.page_number}`
       : captionText;
@@ -496,8 +641,7 @@ function buildReferences(message) {
 }
 
 function formatPrice(value) {
-  if (value === null || value === undefined || value === "")
-    return "";
+  if (value === null || value === undefined || value === "") return "";
   const amount = Number(value);
   if (!Number.isFinite(amount)) return "";
   return new Intl.NumberFormat("vi-VN", {
@@ -555,7 +699,9 @@ function buildImageSearchAnswer(result, products) {
   const minimumPrice = optionalNumber(product.minimum_price);
   const maximumPrice = optionalNumber(product.maximum_price);
   const inventorySyncedAt = formatProductDateTime(product.inventory_synced_at);
-  const title = markdownValue(product.title || product.product_code || "Sản phẩm");
+  const title = markdownValue(
+    product.title || product.product_code || "Sản phẩm",
+  );
   const code = markdownValue(product.product_code);
   const lines = [];
 
@@ -587,9 +733,10 @@ function buildImageSearchAnswer(result, products) {
   }
 
   if (minimumPrice !== null) {
-    const price = maximumPrice !== null && maximumPrice !== minimumPrice
-      ? `${formatPrice(minimumPrice)} – ${formatPrice(maximumPrice)}`
-      : formatPrice(minimumPrice);
+    const price =
+      maximumPrice !== null && maximumPrice !== minimumPrice
+        ? `${formatPrice(minimumPrice)} – ${formatPrice(maximumPrice)}`
+        : formatPrice(minimumPrice);
     lines.push(`- **Giá:** ${price}`);
   }
   if (product.online_store_url) {
@@ -608,7 +755,9 @@ function buildImageSearchAnswer(result, products) {
     lines.push(`- **Tổng tồn:** ${totalInventory}`);
   }
   if (variants.length) {
-    lines.push(`- **Biến thể còn hàng:** ${availableVariants.length}/${variants.length}`);
+    lines.push(
+      `- **Biến thể còn hàng:** ${availableVariants.length}/${variants.length}`,
+    );
   }
   if (inventorySyncedAt) {
     lines.push(`- **Cập nhật tồn kho:** ${inventorySyncedAt}`);
@@ -647,19 +796,24 @@ function buildProductReferences(message) {
   const heading = document.createElement("div");
   heading.className = "rag-reference-heading";
   const resultMeta = message.productResult || null;
-  heading.textContent = resultMeta?.total != null
-    ? `Thông tin và hình ảnh sản phẩm · Hiển thị ${products.length}/${resultMeta.total}`
-    : `Thông tin và hình ảnh sản phẩm · ${products.length} kết quả`;
+  heading.textContent =
+    resultMeta?.total != null
+      ? `Thông tin và hình ảnh sản phẩm · Hiển thị ${products.length}/${resultMeta.total}`
+      : `Thông tin và hình ảnh sản phẩm · ${products.length} kết quả`;
   const grid = document.createElement("div");
   grid.className = "product-source-grid";
 
   for (const product of products) {
     const card = document.createElement("article");
     card.className = "product-source-card";
-    const imageUrls = [...new Set([
-      ...(Array.isArray(product.image_urls) ? product.image_urls : []),
-      product.image_url,
-    ].filter(Boolean))];
+    const imageUrls = [
+      ...new Set(
+        [
+          ...(Array.isArray(product.image_urls) ? product.image_urls : []),
+          product.image_url,
+        ].filter(Boolean),
+      ),
+    ];
     if (imageUrls.length) {
       card.classList.add("has-gallery");
       const galleryTrigger = document.createElement("button");
@@ -785,6 +939,15 @@ function buildProductReferences(message) {
           ...(response.result || resultMeta),
           shown: message.productSources.length,
         };
+        try {
+          const ownerChat = app.chats.find(
+            (chat) =>
+              Array.isArray(chat.messages) && chat.messages.includes(message),
+          );
+          await persistClientMessage(ownerChat, message);
+        } catch (error) {
+          toast(`Chưa lưu được danh sách mới: ${error.message}`);
+        }
         storeChats();
         renderMessages();
       } catch (error) {
@@ -854,15 +1017,17 @@ function buildMessage(message, index) {
         previewImage.loading = "lazy";
         previewButton.append(previewImage);
         previewButton.addEventListener("click", () =>
-          openProductGallery(
-            { title: message.attachmentName },
-            [message.attachmentPreview],
-          ),
+          openProductGallery({ title: message.attachmentName }, [
+            message.attachmentPreview,
+          ]),
         );
         attachment.append(previewButton);
       }
       const caption = document.createElement("figcaption");
-      caption.append(icon("image"), document.createTextNode(message.attachmentName));
+      caption.append(
+        icon("image"),
+        document.createTextNode(message.attachmentName),
+      );
       attachment.append(caption);
       bubble.append(attachment);
     }
@@ -973,10 +1138,11 @@ function scrollConversationToBottom() {
 
 function updateComposerDockHeight() {
   const height = $("composerForm").closest(".composer-dock")?.offsetHeight;
-  if (height) $("conversationScroll").parentElement.style.setProperty(
-    "--composer-dock-height",
-    `${height}px`,
-  );
+  if (height)
+    $("conversationScroll").parentElement.style.setProperty(
+      "--composer-dock-height",
+      `${height}px`,
+    );
 }
 
 function renderHistory() {
@@ -998,9 +1164,15 @@ function renderHistory() {
     select.className = "history-select";
     select.textContent = chat.title;
     select.title = chat.title;
-    select.addEventListener("click", () => {
+    select.addEventListener("click", async () => {
       app.currentId = chat.id;
       storeChats();
+      try {
+        await ensureConversationLoaded(chat);
+      } catch (error) {
+        toast(`Không tải được cuộc trò chuyện: ${error.message}`);
+        return;
+      }
       renderMessages({ scroll: true });
       closeDrawer();
     });
@@ -1027,19 +1199,57 @@ function startNewChat() {
   $("messageInput").focus();
 }
 
-function deleteChat(id) {
+async function deleteChat(id) {
+  const chat = app.chats.find((item) => item.id === id);
+  if (!chat) return;
+  if (chat.persisted) {
+    try {
+      await deleteConversation(id);
+    } catch (error) {
+      toast(error.message || "Không thể xóa cuộc trò chuyện.");
+      return;
+    }
+  }
   app.chats = app.chats.filter((chat) => chat.id !== id);
   if (!app.chats.length) app.chats.push(createChat());
   if (app.currentId === id) app.currentId = app.chats[0].id;
+  try {
+    await ensureConversationLoaded(currentChat());
+  } catch (error) {
+    toast(`Không tải được cuộc trò chuyện: ${error.message}`);
+  }
   storeChats();
   renderHistory();
   renderMessages();
 }
 
+function setAdminPanel(name) {
+  const target = name === "users" ? "users" : "groups";
+  document.querySelectorAll("[data-admin-panel]").forEach((button) => {
+    const active = button.dataset.adminPanel === target;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-current", active ? "page" : "false");
+  });
+  $("adminGroupsOverview").classList.toggle("hidden", target !== "groups");
+  $("adminUsersOverview").classList.toggle("hidden", target !== "users");
+  $("adminDrawer").scrollTop = 0;
+}
+
 function openDrawer(name) {
   if (name === "documents" && !DEBUG_MODE) return;
+  if (name === "admin" && app.currentUser?.role !== "admin") return;
   closeDrawer();
   app.drawer = name;
+  if (name === "admin") {
+    const adminPage = $("adminDrawer");
+    adminPage.classList.remove("hidden");
+    document.querySelector(".app-shell").inert = true;
+    document.body.classList.add("admin-page-open");
+    setAdminPanel("groups");
+    ensureAdminData();
+    adminPage.querySelector(".admin-back-button")?.focus();
+    return;
+  }
   const drawer =
     name === "history"
       ? $("historyDrawer")
@@ -1055,10 +1265,21 @@ function openDrawer(name) {
 }
 
 function closeDrawer() {
+  const permissionDialog = $("permissionGroupDialog");
+  if (permissionDialog?.open) permissionDialog.close();
+  const permissionUserDialog = $("permissionUserDialog");
+  if (permissionUserDialog?.open) permissionUserDialog.close();
+  const createPermissionUserDialog = $("createPermissionUserDialog");
+  if (createPermissionUserDialog?.open) createPermissionUserDialog.close();
+  app.adminEditingGroupId = "";
+  app.adminEditingUserId = "";
   app.drawer = "";
   document
     .querySelectorAll(".side-drawer")
     .forEach((drawer) => drawer.classList.add("hidden"));
+  $("adminDrawer").classList.add("hidden");
+  document.querySelector(".app-shell").inert = !app.currentUser;
+  document.body.classList.remove("admin-page-open");
   $("overlay").classList.add("hidden");
   $("overlay").setAttribute("aria-hidden", "true");
 }
@@ -1124,7 +1345,9 @@ async function generateResponse() {
     (message) => message.role === "user",
   );
   if (userIndex < 0) return;
-  const question = chat.messages[userIndex].content;
+  const userMessage = chat.messages[userIndex];
+  userMessage.id ||= newId();
+  const question = userMessage.content;
   const scope = selectedScope();
   const hasDocumentScope = Boolean(scope.docTypeId || scope.groupId);
   const dataSource = hasDocumentScope ? "documents" : "auto";
@@ -1132,8 +1355,13 @@ async function generateResponse() {
     query: question,
     history: buildHistory(chat.messages.slice(0, userIndex)),
     data_source: dataSource,
+    conversation_id: chat.id,
+    conversation_title: chat.title,
+    message_id: userMessage.id,
   };
-  if (app.prefs.aiProvider) payload.ai_provider = app.prefs.aiProvider;
+  if (DEBUG_MODE && app.prefs.aiProvider) {
+    payload.ai_provider = app.prefs.aiProvider;
+  }
   if (hasDocumentScope) {
     if (scope.docTypeId) payload.doc_type_id = scope.docTypeId;
     if (scope.groupId) payload.group_ids = [scope.groupId];
@@ -1144,7 +1372,9 @@ async function generateResponse() {
   try {
     const result = await sendChat(payload, app.controller.signal);
     const resolvedSource = result.data_source || "documents";
+    userMessage.id = result.user_message_id || userMessage.id;
     chat.messages.push({
+      id: result.assistant_message_id || newId(),
       role: "assistant",
       content: result.answer,
       dataSource: resolvedSource,
@@ -1156,6 +1386,7 @@ async function generateResponse() {
       scope: resolvedSource === "documents" ? scope.label : "Kho sản phẩm",
       createdAt: new Date().toISOString(),
     });
+    chat.persisted = true;
     chat.updatedAt = new Date().toISOString();
     storeChats();
   } catch (error) {
@@ -1196,6 +1427,7 @@ async function retryMessage(index) {
     .findLastIndex((message) => message.role === "user");
   if (userIndex < 0) return;
   chat.messages = chat.messages.slice(0, userIndex + 1);
+  chat.messages[userIndex].id ||= newId();
   storeChats();
   renderMessages({ scroll: true });
   await generateResponse();
@@ -1210,6 +1442,7 @@ async function submitMessage(value) {
     chat = currentChat();
   }
   chat.messages.push({
+    id: newId(),
     role: "user",
     content,
     dataSource: "auto",
@@ -1239,7 +1472,10 @@ function createImageThumbnail(file, maxEdge = 480) {
     const image = new Image();
     image.onload = () => {
       try {
-        const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+        const scale = Math.min(
+          1,
+          maxEdge / Math.max(image.width, image.height),
+        );
         const width = Math.max(1, Math.round(image.width * scale));
         const height = Math.max(1, Math.round(image.height * scale));
         const canvas = document.createElement("canvas");
@@ -1289,7 +1525,10 @@ function selectProductImage(file) {
   app.productImagePreviewUrl = URL.createObjectURL(file);
   $("productImagePreviewImage").src = app.productImagePreviewUrl;
   $("productImagePreviewName").textContent = file.name;
-  $("productImagePreviewMeta").textContent = [file.type, formatFileSize(file.size)]
+  $("productImagePreviewMeta").textContent = [
+    file.type,
+    formatFileSize(file.size),
+  ]
     .filter(Boolean)
     .join(" · ");
   $("productImagePreview").classList.remove("hidden");
@@ -1300,7 +1539,8 @@ function selectProductImage(file) {
 async function submitProductImage(value) {
   const file = app.productImageFile;
   if (!file || app.busy) return;
-  const content = String(value || "").trim() || "Nhận diện sản phẩm bằng hình ảnh";
+  const content =
+    String(value || "").trim() || "Nhận diện sản phẩm bằng hình ảnh";
   let attachmentPreview = "";
   try {
     attachmentPreview = await createImageThumbnail(file);
@@ -1312,14 +1552,16 @@ async function submitProductImage(value) {
     startNewChat();
     chat = currentChat();
   }
-  chat.messages.push({
+  const userMessage = {
+    id: newId(),
     role: "user",
     content,
     attachmentName: file.name,
     attachmentPreview,
     dataSource: "products",
     createdAt: new Date().toISOString(),
-  });
+  };
+  chat.messages.push(userMessage);
   if (chat.messages.filter((message) => message.role === "user").length === 1) {
     chat.title = `Tìm bằng ảnh · ${file.name}`.slice(0, 55);
   }
@@ -1332,19 +1574,20 @@ async function submitProductImage(value) {
   renderHistory();
   renderMessages({ scroll: true });
 
-  // storeChats() giới hạn lịch sử bằng cách tạo lại các object chat.
-  // Lấy lại object hiện hành để kết quả bất đồng bộ không bị
-  // ghi vào tham chiếu cũ rồi thất lạc.
-  chat = currentChat();
-  if (!chat) return;
-
   app.controller = new AbortController();
   setBusy(true);
   try {
+    try {
+      await persistClientMessage(chat, userMessage);
+    } catch (error) {
+      toast(`Chưa lưu được câu hỏi: ${error.message}`);
+    }
+
     const result = await searchProductsByImage(file, app.controller.signal);
     const products = Array.isArray(result.products) ? result.products : [];
     const identifiedProducts = products.slice(0, 1);
-    chat.messages.push({
+    const assistantMessage = {
+      id: newId(),
       role: "assistant",
       content: buildImageSearchAnswer(result, identifiedProducts),
       dataSource: "products",
@@ -1361,12 +1604,19 @@ async function submitProductImage(value) {
       imageSearch: true,
       imageSearchLowConfidence: Boolean(result.low_confidence),
       createdAt: new Date().toISOString(),
-    });
+    };
+    chat.messages.push(assistantMessage);
+    try {
+      await persistClientMessage(chat, assistantMessage);
+    } catch (error) {
+      toast(`Chưa lưu được kết quả: ${error.message}`);
+    }
     chat.updatedAt = new Date().toISOString();
     storeChats();
   } catch (error) {
     if (error?.name !== "AbortError") {
-      chat.messages.push({
+      const errorMessage = {
+        id: newId(),
         role: "assistant",
         content: `Không thể tìm sản phẩm bằng ảnh lúc này. ${error?.message || "Vui lòng thử lại."}`,
         dataSource: "products",
@@ -1375,7 +1625,11 @@ async function submitProductImage(value) {
         productResult: null,
         imageSearch: true,
         createdAt: new Date().toISOString(),
-      });
+      };
+      chat.messages.push(errorMessage);
+      try {
+        await persistClientMessage(chat, errorMessage);
+      } catch {}
       storeChats();
       toast(error?.message || "Tìm sản phẩm bằng ảnh thất bại");
     }
@@ -1566,7 +1820,1243 @@ async function openSourceDocument(source) {
   }
 }
 
+function permissionScopeLabel(scope) {
+  if (scope.scope_type === "all") return "Toàn bộ tài liệu";
+  if (scope.scope_type === "doc_type") {
+    return (
+      app.taxonomy.find((item) => String(item.id) === String(scope.doc_type_id))
+        ?.name || `Loại #${scope.doc_type_id}`
+    );
+  }
+  for (const docType of app.taxonomy) {
+    const group = (docType.groups || []).find(
+      (item) => String(item.id) === String(scope.doc_group_id),
+    );
+    if (group) return group.name;
+  }
+  return `Nhóm #${scope.doc_group_id}`;
+}
+
+function renderPermissionGroupTable() {
+  const query = $("permissionGroupSearch")
+    .value.trim()
+    .toLocaleLowerCase("vi-VN");
+  const groups = app.adminGroups.filter((group) =>
+    [group.name, group.code, group.description]
+      .filter(Boolean)
+      .some((value) => value.toLocaleLowerCase("vi-VN").includes(query)),
+  );
+  const body = $("permissionGroupTableBody");
+  body.replaceChildren();
+
+  if (!groups.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 7;
+    cell.className = "permission-table-empty";
+    cell.textContent = query
+      ? "Không tìm thấy nhóm quyền phù hợp."
+      : "Chưa có nhóm quyền nào.";
+    row.append(cell);
+    body.append(row);
+    return;
+  }
+
+  for (const group of groups) {
+    const row = document.createElement("tr");
+
+    const nameCell = document.createElement("td");
+    const name = document.createElement("span");
+    name.className = "permission-group-name";
+    const code = document.createElement("small");
+    code.textContent = group.code;
+    const nameStrong = document.createElement("strong");
+    nameStrong.textContent = group.name;
+    name.append(code, nameStrong);
+    nameCell.append(name);
+
+    const descriptionCell = document.createElement("td");
+    const description = document.createElement("span");
+    description.className = "permission-table-description";
+    description.textContent = group.description || "Chưa có mô tả";
+    descriptionCell.append(description);
+
+    const usersCell = document.createElement("td");
+    usersCell.className = "permission-user-count";
+    usersCell.textContent = String(group.user_count || 0);
+
+    const scopesCell = document.createElement("td");
+    const chips = document.createElement("div");
+    chips.className = "permission-scope-chips";
+    const labels = (group.scopes || []).map(permissionScopeLabel);
+    const visibleLabels = labels.slice(0, 3);
+    if (!visibleLabels.length) visibleLabels.push("Chưa cấp phạm vi");
+    for (const label of visibleLabels) {
+      const chip = document.createElement("span");
+      chip.className = "permission-scope-chip";
+      chip.textContent = label;
+      chips.append(chip);
+    }
+    if (labels.length > visibleLabels.length) {
+      const more = document.createElement("span");
+      more.className = "permission-scope-chip";
+      more.textContent = `+${labels.length - visibleLabels.length}`;
+      chips.append(more);
+    }
+    scopesCell.append(chips);
+
+    const statusCell = document.createElement("td");
+    const status = document.createElement("span");
+    status.className = `permission-status${group.is_active ? "" : " inactive"}`;
+    status.textContent = group.is_active ? "Đang hoạt động" : "Đã khóa";
+    statusCell.append(status);
+
+    const actionCell = document.createElement("td");
+    const actions = document.createElement("div");
+    actions.className = "permission-row-actions";
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "permission-edit-button";
+    editButton.title = `Chỉnh sửa ${group.name}`;
+    editButton.setAttribute("aria-label", editButton.title);
+    editButton.append(icon("edit"));
+    editButton.addEventListener("click", () =>
+      openPermissionGroupDialog(group),
+    );
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "permission-row-delete-button";
+    const deleteBlockReason = permissionGroupDeleteBlockReason(group);
+    deleteButton.disabled = Boolean(deleteBlockReason);
+    deleteButton.title = deleteBlockReason || `Xóa nhóm ${group.name}`;
+    deleteButton.setAttribute("aria-label", deleteButton.title);
+    deleteButton.append(icon("trash"));
+    deleteButton.addEventListener("click", async () => {
+      await deletePermissionGroupRecord(group, deleteButton);
+    });
+
+    actions.append(editButton, deleteButton);
+    actionCell.append(actions);
+
+    row.append(
+      nameCell,
+      descriptionCell,
+      usersCell,
+      scopesCell,
+      statusCell,
+      actionCell,
+    );
+    body.append(row);
+  }
+}
+
+function permissionUserStatusLabel(status) {
+  if (status === "active") return "Hoạt động";
+  if (status === "locked") return "Đã khóa";
+  return "Vô hiệu hóa";
+}
+
+function populatePermissionUserDepartmentFilter() {
+  const select = $("permissionDepartmentFilter");
+  const selected = select.value;
+  const departments = [
+    ...new Set(app.adminUsers.map((user) => user.department).filter(Boolean)),
+  ].sort((left, right) => left.localeCompare(right, "vi-VN"));
+  select.replaceChildren(new Option("Tất cả phòng ban", ""));
+  for (const department of departments) {
+    select.append(new Option(department, department));
+  }
+  select.value = departments.includes(selected) ? selected : "";
+}
+
+function renderPermissionUsers() {
+  const query = $("permissionUserSearch")
+    .value.trim()
+    .toLocaleLowerCase("vi-VN");
+  const department = $("permissionDepartmentFilter").value;
+  const statusFilter = $("permissionStatusFilter").value;
+  const users = app.adminUsers.filter((user) => {
+    const matchesQuery = [
+      user.full_name,
+      user.username,
+      user.email,
+      user.department,
+      user.permission_group_name,
+    ]
+      .filter(Boolean)
+      .some((value) => value.toLocaleLowerCase("vi-VN").includes(query));
+    return (
+      matchesQuery &&
+      (!department || user.department === department) &&
+      (!statusFilter || user.account_status === statusFilter)
+    );
+  });
+
+  $("permissionUserTotal").textContent = `${app.adminUsers.length} người dùng`;
+  $("permissionUserResultCount").textContent =
+    `Hiển thị ${users.length} trong tổng số ${app.adminUsers.length} người dùng`;
+
+  const body = $("permissionUserList");
+  body.replaceChildren();
+  if (!users.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6;
+    cell.className = "permission-table-empty";
+    cell.textContent = "Không tìm thấy người dùng phù hợp.";
+    row.append(cell);
+    body.append(row);
+    return;
+  }
+
+  for (const user of users) {
+    const row = document.createElement("tr");
+
+    const userCell = document.createElement("td");
+    const info = document.createElement("div");
+    info.className = "permission-user-identity";
+    const avatar = document.createElement("span");
+    avatar.className = "permission-user-avatar";
+    avatar.textContent = accountInitials(user);
+    const copy = document.createElement("span");
+    copy.className = "permission-user-copy";
+    const name = document.createElement("strong");
+    name.textContent = user.full_name;
+    const email = document.createElement("small");
+    email.textContent = user.email || "Chưa có email";
+    copy.append(name, email);
+    info.append(avatar, copy);
+    userCell.append(info);
+
+    const usernameCell = document.createElement("td");
+    const username = document.createElement("code");
+    username.className = "permission-username";
+    username.textContent = user.username;
+    usernameCell.append(username);
+
+    const departmentCell = document.createElement("td");
+    departmentCell.textContent = user.department || "—";
+
+    const groupCell = document.createElement("td");
+    const groupInfo = document.createElement("span");
+    groupInfo.className = "permission-user-group";
+    if (user.role === "admin") {
+      const code = document.createElement("small");
+      code.textContent = "ADMIN";
+      const groupName = document.createElement("strong");
+      groupName.textContent = "Toàn quyền quản trị";
+      groupInfo.append(code, groupName);
+    } else {
+      const group = app.adminGroups.find(
+        (item) => String(item.id) === String(user.permission_group_id || ""),
+      );
+      const code = document.createElement("small");
+      code.textContent = group?.code || "CHƯA_GÁN";
+      const groupName = document.createElement("strong");
+      groupName.textContent = group?.name || "Chưa gán nhóm";
+      groupInfo.append(code, groupName);
+    }
+    groupCell.append(groupInfo);
+
+    const statusCell = document.createElement("td");
+    const status = document.createElement("span");
+    status.className = `permission-user-status ${user.account_status}`;
+    status.textContent = permissionUserStatusLabel(user.account_status);
+    statusCell.append(status);
+
+    const lastLoginCell = document.createElement("td");
+    lastLoginCell.className = "permission-user-last-login";
+    lastLoginCell.textContent = formatAdminDateTime(user.last_login_at);
+
+    const actionCell = document.createElement("td");
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "permission-edit-button";
+    editButton.title = `Chỉnh sửa người dùng ${user.full_name}`;
+    editButton.setAttribute("aria-label", editButton.title);
+    editButton.append(icon("edit"));
+    editButton.addEventListener("click", () => openPermissionUserDialog(user));
+    actionCell.append(editButton);
+
+    row.append(
+      userCell,
+      usernameCell,
+      departmentCell,
+      groupCell,
+      statusCell,
+      lastLoginCell,
+      actionCell,
+    );
+    body.append(row);
+  }
+}
+
+function renderPermissionUserGroupChoices() {
+  const user = app.adminUsers.find(
+    (item) => item.id === app.adminEditingUserId,
+  );
+  const container = $("permissionUserGroupList");
+  container.replaceChildren();
+  if (!user) return;
+
+  const query = $("permissionUserGroupSearch")
+    .value.trim()
+    .toLocaleLowerCase("vi-VN");
+  const groups = app.adminGroups.filter((group) => {
+    const isCurrent = String(group.id) === String(user.permission_group_id || "");
+    const matches = [group.code, group.name, group.description]
+      .filter(Boolean)
+      .some((value) => value.toLocaleLowerCase("vi-VN").includes(query));
+    return (group.is_active || isCurrent) && matches;
+  });
+
+  if (!query) {
+    const label = document.createElement("label");
+    label.className = "permission-user-group-option";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "permission_user_group";
+    input.value = "";
+    input.checked = !user.permission_group_id;
+    const copy = document.createElement("span");
+    const code = document.createElement("small");
+    code.textContent = "CHƯA_GÁN";
+    const name = document.createElement("strong");
+    name.textContent = "Chưa gán nhóm";
+    copy.append(code, name);
+    const meta = document.createElement("small");
+    meta.textContent = "Không có quyền xem tài liệu";
+    label.append(input, copy, meta);
+    container.append(label);
+  }
+
+  for (const group of groups) {
+    const label = document.createElement("label");
+    label.className = "permission-user-group-option";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "permission_user_group";
+    input.value = group.id;
+    input.checked = String(group.id) === String(user.permission_group_id || "");
+    const copy = document.createElement("span");
+    const code = document.createElement("small");
+    code.textContent = group.code;
+    const name = document.createElement("strong");
+    name.textContent = group.name;
+    copy.append(code, name);
+    const meta = document.createElement("small");
+    meta.textContent = group.is_active
+      ? `${group.scopes?.length || 0} phạm vi`
+      : "Nhóm đã khóa";
+    label.append(input, copy, meta);
+    container.append(label);
+  }
+
+  if (!container.children.length) {
+    const empty = document.createElement("p");
+    empty.className = "permission-table-empty";
+    empty.textContent = "Không tìm thấy nhóm quyền.";
+    container.append(empty);
+  }
+  syncPermissionUserRoleControls();
+}
+
+function openPermissionUserDialog(user) {
+  if (!user) return;
+  app.adminEditingUserId = user.id;
+  $("permissionUserDialogAvatar").textContent = accountInitials(user);
+  $("permissionUserDialogName").textContent = user.full_name;
+  $("permissionUserDialogRole").textContent = accountRoleLabel(user.role);
+  $("permissionUserFullName").value = user.full_name;
+  $("permissionUserUsername").value = user.username;
+  $("permissionUserEmail").value = user.email || "";
+  $("permissionUserDepartment").value = user.department || "";
+  $("permissionUserRole").value = user.role;
+  $("permissionUserActive").checked = user.account_status === "active";
+  $("permissionUserGroupSearch").value = "";
+  setPermissionPasswordResetExpanded(false);
+  renderPermissionUserGroupChoices();
+  syncPermissionUserStatusControl();
+  $("permissionUserDialog").showModal();
+  $("permissionUserFullName").focus();
+}
+
+function closePermissionUserDialog() {
+  if ($("permissionUserDialog").open) $("permissionUserDialog").close();
+  app.adminEditingUserId = "";
+}
+
+function setPermissionUserDialogBusy(busy) {
+  $("permissionUserForm")
+    .querySelectorAll("input, select, button")
+    .forEach((control) => (control.disabled = busy));
+  $("savePermissionUserButton").textContent = busy
+    ? "Đang lưu..."
+    : "Lưu thay đổi";
+  if (!busy) {
+    syncPermissionUserRoleControls();
+    syncPermissionUserStatusControl();
+  }
+}
+
+function syncPermissionUserStatusControl() {
+  const user = app.adminUsers.find(
+    (item) => item.id === app.adminEditingUserId,
+  );
+  const input = $("permissionUserActive");
+  const active = input.checked;
+  input.disabled = Boolean(user && user.id === app.currentUser?.id);
+  $("permissionUserDialogStatus").textContent = active
+    ? "Tài khoản đang hoạt động"
+    : "Tài khoản đã bị vô hiệu hóa";
+  $("permissionUserStatusHint").textContent = input.disabled
+    ? "Không thể tự vô hiệu hóa tài khoản đang đăng nhập."
+    : active
+      ? "Người dùng có thể đăng nhập và sử dụng hệ thống."
+      : "Người dùng sẽ bị ngừng truy cập ngay sau khi lưu.";
+}
+
+function syncPermissionUserRoleControls() {
+  const isAdmin = $("permissionUserRole").value === "admin";
+  $("permissionUserDialogRole").textContent = accountRoleLabel(
+    $("permissionUserRole").value,
+  );
+  $("permissionUserGroupSearch").disabled = isAdmin;
+  $("permissionUserGroupList").classList.toggle("is-disabled", isAdmin);
+  $("permissionUserGroupList")
+    .querySelectorAll('input[name="permission_user_group"]')
+    .forEach((input) => (input.disabled = isAdmin));
+  $("permissionUserGroupHint").textContent = isAdmin
+    ? "Admin có toàn quyền quản trị và không phụ thuộc nhóm tài liệu."
+    : "Mỗi người dùng chỉ thuộc một nhóm quyền tại một thời điểm.";
+}
+
+function setPermissionPasswordResetExpanded(expanded) {
+  const panel = $("permissionPasswordResetPanel");
+  const button = $("togglePermissionPasswordResetButton");
+  panel.classList.toggle("hidden", !expanded);
+  button.setAttribute("aria-expanded", String(expanded));
+  if (!expanded) {
+    $("permissionNewPassword").value = "";
+    $("permissionConfirmPassword").value = "";
+  }
+}
+
+function setPermissionPasswordResetBusy(busy) {
+  $("permissionUserForm")
+    .querySelectorAll("input, select, button")
+    .forEach((control) => (control.disabled = busy));
+  $("confirmPermissionPasswordResetButton").textContent = busy
+    ? "Đang đặt lại..."
+    : "Xác nhận đặt lại";
+  if (!busy) {
+    syncPermissionUserRoleControls();
+    syncPermissionUserStatusControl();
+  }
+}
+
+async function submitPermissionPasswordReset() {
+  const user = app.adminUsers.find(
+    (item) => item.id === app.adminEditingUserId,
+  );
+  if (!user) return;
+  const newPassword = $("permissionNewPassword").value;
+  const confirmation = $("permissionConfirmPassword").value;
+  if (newPassword.length < 4) {
+    toast("Mật khẩu mới phải có ít nhất 4 ký tự.");
+    $("permissionNewPassword").focus();
+    return;
+  }
+  if (newPassword !== confirmation) {
+    toast("Mật khẩu xác nhận không khớp.");
+    $("permissionConfirmPassword").focus();
+    return;
+  }
+
+  setPermissionPasswordResetBusy(true);
+  try {
+    await resetAdminUserPassword(user.id, newPassword);
+    const resetCurrentAccount = user.id === app.currentUser?.id;
+    setPermissionPasswordResetExpanded(false);
+    if (resetCurrentAccount) {
+      closePermissionUserDialog();
+      syncAuthenticatedUser(null);
+      openLoginDialog({ required: true });
+      setLoginMessage("Đã đặt lại mật khẩu. Vui lòng đăng nhập lại.");
+      return;
+    }
+    toast(`Đã đặt lại mật khẩu cho ${user.full_name}`);
+  } catch (error) {
+    toast(`Không thể đặt lại mật khẩu: ${error.message}`);
+  } finally {
+    setPermissionPasswordResetBusy(false);
+  }
+}
+
+async function submitPermissionUserDialog() {
+  const user = app.adminUsers.find(
+    (item) => item.id === app.adminEditingUserId,
+  );
+  if (!user) return;
+  const selected = $("permissionUserGroupList").querySelector(
+    'input[name="permission_user_group"]:checked',
+  );
+  const nextGroupId = selected?.value || null;
+  const role = $("permissionUserRole").value;
+  const payload = {
+    username: $("permissionUserUsername").value.trim(),
+    full_name: $("permissionUserFullName").value.trim(),
+    email: $("permissionUserEmail").value.trim() || null,
+    department: $("permissionUserDepartment").value.trim() || null,
+    role,
+    account_status: $("permissionUserActive").checked
+      ? "active"
+      : "disabled",
+    permission_group_id: role === "admin" ? null : nextGroupId,
+  };
+
+  setPermissionUserDialogBusy(true);
+  try {
+    const updatedUser = await updateAdminUser(user.id, payload);
+    if (user.id === app.currentUser?.id) {
+      syncAuthenticatedUser({ ...app.currentUser, ...updatedUser });
+    }
+    closePermissionUserDialog();
+    await ensureAdminData(true);
+    toast(`Đã cập nhật người dùng ${updatedUser.full_name}`);
+  } catch (error) {
+    toast(`Không thể cập nhật người dùng: ${error.message}`);
+  } finally {
+    setPermissionUserDialogBusy(false);
+  }
+}
+
+function populateCreateUserPermissionGroups() {
+  const select = $("createUserPermissionGroup");
+  select.replaceChildren(new Option("Chưa gán nhóm", ""));
+  const activeGroups = app.adminGroups
+    .filter((group) => group.is_active)
+    .sort((left, right) => left.name.localeCompare(right.name, "vi-VN"));
+  for (const group of activeGroups) {
+    select.append(new Option(`${group.code} — ${group.name}`, group.id));
+  }
+}
+
+function openCreatePermissionUserDialog() {
+  const form = $("createPermissionUserForm");
+  form.reset();
+  populateCreateUserPermissionGroups();
+  $("createUserRole").value = "employee";
+  $("createUserStatus").value = "active";
+  $("createPermissionUserDialog").showModal();
+  $("createUserFullName").focus();
+}
+
+function closeCreatePermissionUserDialog() {
+  if ($("createPermissionUserDialog").open) {
+    $("createPermissionUserDialog").close();
+  }
+}
+
+function setCreatePermissionUserBusy(busy) {
+  const form = $("createPermissionUserForm");
+  form
+    .querySelectorAll("input, select, button")
+    .forEach((control) => (control.disabled = busy));
+  $("saveCreatePermissionUserButton").textContent = busy
+    ? "Đang tạo..."
+    : "Tạo người dùng";
+}
+
+async function submitCreatePermissionUserDialog() {
+  const payload = {
+    full_name: $("createUserFullName").value.trim(),
+    username: $("createUserUsername").value.trim(),
+    password: $("createUserPassword").value,
+    email: $("createUserEmail").value.trim() || null,
+    department: $("createUserDepartment").value.trim() || null,
+    role: $("createUserRole").value,
+    account_status: $("createUserStatus").value,
+    permission_group_id: $("createUserPermissionGroup").value || null,
+  };
+
+  setCreatePermissionUserBusy(true);
+  try {
+    const user = await createAdminUser(payload);
+    closeCreatePermissionUserDialog();
+    await ensureAdminData(true);
+    toast(`Đã tạo người dùng ${user.full_name}`);
+  } catch (error) {
+    toast(`Không thể tạo người dùng: ${error.message}`);
+  } finally {
+    setCreatePermissionUserBusy(false);
+  }
+}
+
+function updatePermissionDialogScopeControls() {
+  const tree = $("permissionDialogScopeTree");
+  const all = tree.querySelector('[data-scope="all"]');
+  const allChecked = Boolean(all?.checked);
+  tree.querySelectorAll('[data-scope="doc_type"]').forEach((typeInput) => {
+    typeInput.disabled = allChecked;
+    typeInput
+      .closest(".admin-scope-type-row")
+      ?.querySelectorAll('[data-scope="doc_group"]')
+      .forEach((groupInput) => {
+        groupInput.disabled = allChecked || typeInput.checked;
+      });
+  });
+  const selected = collectPermissionDialogScopes();
+  $("permissionDialogScopeCount").textContent = `${selected.length} mục`;
+}
+
+function renderPermissionDialogScopes(scopes = []) {
+  const tree = $("permissionDialogScopeTree");
+  tree.replaceChildren();
+  const hasAll = scopes.some((scope) => scope.scope_type === "all");
+  const typeIds = new Set(
+    scopes
+      .filter((scope) => scope.scope_type === "doc_type")
+      .map((scope) => String(scope.doc_type_id)),
+  );
+  const groupIds = new Set(
+    scopes
+      .filter((scope) => scope.scope_type === "doc_group")
+      .map((scope) => String(scope.doc_group_id)),
+  );
+
+  const allLabel = document.createElement("label");
+  allLabel.className = "admin-scope-all";
+  const allInput = document.createElement("input");
+  allInput.type = "checkbox";
+  allInput.dataset.scope = "all";
+  allInput.checked = hasAll;
+  allLabel.append(
+    allInput,
+    document.createTextNode("Cho phép xem toàn bộ tài liệu"),
+  );
+  tree.append(allLabel);
+
+  for (const docType of app.taxonomy) {
+    const row = document.createElement("div");
+    row.className = "admin-scope-type-row";
+    const typeLabel = document.createElement("label");
+    typeLabel.className = "admin-scope-type";
+    const typeInput = document.createElement("input");
+    typeInput.type = "checkbox";
+    typeInput.dataset.scope = "doc_type";
+    typeInput.dataset.id = String(docType.id);
+    typeInput.checked = typeIds.has(String(docType.id));
+    typeLabel.append(typeInput, document.createTextNode(docType.name));
+    row.append(typeLabel);
+
+    const children = document.createElement("div");
+    children.className = "admin-scope-groups";
+    for (const documentGroup of docType.groups || []) {
+      const label = document.createElement("label");
+      label.className = "admin-scope-group";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.scope = "doc_group";
+      input.dataset.id = String(documentGroup.id);
+      input.checked = groupIds.has(String(documentGroup.id));
+      const text = document.createElement("span");
+      text.textContent = documentGroup.name;
+      label.append(input, text);
+      children.append(label);
+    }
+    row.append(children);
+    tree.append(row);
+  }
+
+  tree.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (input.dataset.scope === "all" && input.checked) {
+        tree
+          .querySelectorAll('input[type="checkbox"]:not([data-scope="all"])')
+          .forEach((item) => {
+            item.checked = false;
+          });
+      }
+      if (input.dataset.scope === "doc_type" && input.checked) {
+        input
+          .closest(".admin-scope-type-row")
+          ?.querySelectorAll('[data-scope="doc_group"]')
+          .forEach((item) => {
+            item.checked = false;
+          });
+      }
+      updatePermissionDialogScopeControls();
+    });
+  });
+  updatePermissionDialogScopeControls();
+}
+
+function collectPermissionDialogScopes() {
+  const tree = $("permissionDialogScopeTree");
+  if (tree.querySelector('[data-scope="all"]:checked')) {
+    return [{ scope_type: "all", doc_type_id: null, doc_group_id: null }];
+  }
+  const scopes = new Map();
+  for (const input of tree.querySelectorAll('input[type="checkbox"]:checked')) {
+    const id = Number(input.dataset.id);
+    if (!Number.isSafeInteger(id) || id < 1) continue;
+    if (input.dataset.scope === "doc_type") {
+      scopes.set(`type:${id}`, {
+        scope_type: "doc_type",
+        doc_type_id: id,
+        doc_group_id: null,
+      });
+    } else if (
+      input.dataset.scope === "doc_group" &&
+      !input
+        .closest(".admin-scope-type-row")
+        ?.querySelector('[data-scope="doc_type"]:checked')
+    ) {
+      scopes.set(`group:${id}`, {
+        scope_type: "doc_group",
+        doc_type_id: null,
+        doc_group_id: id,
+      });
+    }
+  }
+  return [...scopes.values()];
+}
+
+function renderPermissionDialogUsers(group = null) {
+  const container = $("permissionDialogUserList");
+  container.replaceChildren();
+
+  if (!group) {
+    $("permissionDialogUserCount").textContent = "Chưa có người dùng";
+    const empty = document.createElement("p");
+    empty.className = "permission-dialog-user-empty";
+    empty.textContent = "Lưu nhóm trước để gán người dùng.";
+    container.append(empty);
+    return;
+  }
+
+  const users = app.adminUsers.filter(
+    (user) => String(user.permission_group_id || "") === String(group.id),
+  );
+  $("permissionDialogUserCount").textContent = `${users.length} người dùng`;
+
+  if (!users.length) {
+    const empty = document.createElement("p");
+    empty.className = "permission-dialog-user-empty";
+    empty.textContent = "Nhóm này chưa có người dùng.";
+    container.append(empty);
+    return;
+  }
+
+  for (const user of users) {
+    const row = document.createElement("div");
+    row.className = "permission-dialog-user";
+
+    const avatar = document.createElement("span");
+    avatar.className = "permission-dialog-user-avatar";
+    avatar.textContent = accountInitials(user);
+
+    const info = document.createElement("span");
+    info.className = "permission-dialog-user-info";
+    const name = document.createElement("strong");
+    name.textContent = user.full_name;
+    const meta = document.createElement("small");
+    meta.textContent = [
+      `@${user.username}`,
+      user.department,
+      accountRoleLabel(user.role),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    info.append(name, meta);
+
+    const status = document.createElement("span");
+    status.className = `permission-dialog-user-status ${user.account_status}`;
+    status.textContent =
+      user.account_status === "active"
+        ? "Hoạt động"
+        : user.account_status === "locked"
+          ? "Đã khóa"
+          : "Vô hiệu hóa";
+
+    row.append(avatar, info, status);
+    container.append(row);
+  }
+}
+
+function syncDeletePermissionGroupButton(group = null, busy = false) {
+  const button = $("deletePermissionGroupButton");
+
+  button.classList.toggle("hidden", !group);
+
+  if (!group) {
+    button.disabled = true;
+    button.title = "";
+    return;
+  }
+
+  const blockReason = permissionGroupDeleteBlockReason(group);
+  button.disabled = busy || Boolean(blockReason);
+  button.title = blockReason || `Xóa nhóm ${group.code}`;
+}
+
+function permissionGroupDeleteBlockReason(group) {
+  if (group.code?.toUpperCase() === "ALL_DOCUMENTS") {
+    return "Không thể xóa nhóm quyền hệ thống.";
+  }
+  if (Number(group.user_count || 0) > 0) {
+    return (
+      `Nhóm đang có ${group.user_count} người dùng. ` +
+      "Hãy chuyển họ sang nhóm khác trước."
+    );
+  }
+  return "";
+}
+function openPermissionGroupDialog(group = null) {
+  app.adminEditingGroupId = group?.id || "";
+  $("permissionGroupForm").reset();
+  $("permissionDialogTitle").textContent = group
+    ? "Chỉnh sửa nhóm quyền"
+    : "Tạo nhóm quyền";
+  $("permissionDialogDescription").textContent = group
+    ? "Cập nhật thông tin nhóm và phạm vi tài liệu được phép truy cập."
+    : "Thiết lập thông tin nhóm và phạm vi tài liệu được phép truy cập.";
+  $("permissionGroupName").value = group?.name || "";
+  $("permissionGroupCode").value = group?.code || "";
+  $("permissionGroupCode").readOnly = Boolean(group);
+  $("permissionGroupCodeHint").textContent = group
+    ? "Mã nhóm không thể thay đổi sau khi tạo."
+    : "Chỉ dùng chữ không dấu, số, dấu gạch ngang hoặc gạch dưới.";
+  $("permissionGroupDescription").value = group?.description || "";
+  $("permissionDescriptionCount").textContent = String(
+    $("permissionGroupDescription").value.length,
+  );
+  $("permissionGroupActive").checked = group ? group.is_active : true;
+  $("assignUsersFromDialogButton").disabled = !group;
+  $("savePermissionGroupButton").textContent = group
+    ? "Lưu thay đổi"
+    : "Tạo nhóm";
+  syncDeletePermissionGroupButton(group);
+  renderPermissionDialogUsers(group);
+  renderPermissionDialogScopes(group?.scopes || []);
+  $("permissionGroupDialog").showModal();
+  $(group ? "permissionGroupName" : "permissionGroupCode").focus();
+}
+
+function closePermissionGroupDialog() {
+  if ($("permissionGroupDialog").open) $("permissionGroupDialog").close();
+  app.adminEditingGroupId = "";
+}
+
+function setPermissionDialogBusy(busy) {
+  $("savePermissionGroupButton").disabled = busy;
+  $("cancelPermissionDialogButton").disabled = busy;
+  $("closePermissionDialogButton").disabled = busy;
+  const currentGroup = app.adminGroups.find(
+    (group) => group.id === app.adminEditingGroupId,
+  );
+  syncDeletePermissionGroupButton(currentGroup || null, busy);
+  $("savePermissionGroupButton").textContent = busy
+    ? "Đang lưu..."
+    : app.adminEditingGroupId
+      ? "Lưu thay đổi"
+      : "Tạo nhóm";
+}
+
+async function deletePermissionGroupRecord(group, triggerButton = null) {
+  if (!group) return;
+
+  const blockReason = permissionGroupDeleteBlockReason(group);
+  if (blockReason) {
+    toast(blockReason);
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Bạn có chắc muốn xóa nhóm quyền?\n\n` +
+      `${group.code} — ${group.name}\n\n` +
+      "Toàn bộ phạm vi tài liệu của nhóm cũng sẽ bị xóa. " +
+      "Hành động này không thể hoàn tác.",
+  );
+  if (!confirmed) return;
+
+  const dialogWasOpen = $("permissionGroupDialog").open;
+  if (dialogWasOpen) setPermissionDialogBusy(true);
+  if (triggerButton) {
+    triggerButton.disabled = true;
+    triggerButton.setAttribute("aria-busy", "true");
+  }
+  try {
+    const result = await deletePermissionGroup(group.id);
+    if (dialogWasOpen) closePermissionGroupDialog();
+    await ensureAdminData(true);
+    toast(result.message || `Đã xóa nhóm ${group.name}.`);
+  } catch (error) {
+    toast(`Không thể xóa nhóm quyền: ${error.message}`);
+  } finally {
+    if (dialogWasOpen) setPermissionDialogBusy(false);
+    if (triggerButton?.isConnected) {
+      triggerButton.disabled = false;
+      triggerButton.removeAttribute("aria-busy");
+    }
+  }
+}
+
+async function deleteEditingPermissionGroup() {
+  const group = app.adminGroups.find(
+    (item) => item.id === app.adminEditingGroupId,
+  );
+  await deletePermissionGroupRecord(group);
+}
+
+async function submitPermissionGroupDialog() {
+  const payload = {
+    name: $("permissionGroupName").value.trim(),
+    description: $("permissionGroupDescription").value.trim() || null,
+  };
+  const scopes = collectPermissionDialogScopes();
+  setPermissionDialogBusy(true);
+  try {
+    if (app.adminEditingGroupId) {
+      await updatePermissionGroup(app.adminEditingGroupId, {
+        ...payload,
+        is_active: $("permissionGroupActive").checked,
+      });
+      await updatePermissionScopes(app.adminEditingGroupId, scopes);
+      toast("Đã cập nhật nhóm quyền");
+    } else {
+      const created = await createPermissionGroup({
+        ...payload,
+        code: $("permissionGroupCode").value.trim().toUpperCase(),
+      });
+      if (!$("permissionGroupActive").checked) {
+        await updatePermissionGroup(created.id, {
+          ...payload,
+          is_active: false,
+        });
+      }
+      await updatePermissionScopes(created.id, scopes);
+      toast(`Đã tạo nhóm ${created.name}`);
+    }
+    closePermissionGroupDialog();
+    await ensureAdminData(true);
+  } catch (error) {
+    toast(`Không thể lưu nhóm quyền: ${error.message}`);
+  } finally {
+    setPermissionDialogBusy(false);
+  }
+}
+
+async function ensureAdminData(force = false) {
+  if (app.currentUser?.role !== "admin") return;
+  if (app.adminLoaded && !force) {
+    renderPermissionGroupTable();
+    populatePermissionUserDepartmentFilter();
+    renderPermissionUsers();
+    return;
+  }
+  try {
+    const [groupsResult, usersResult] = await Promise.all([
+      getPermissionGroups(),
+      getAdminUsers(),
+    ]);
+    app.adminGroups = groupsResult.groups || [];
+    app.adminUsers = usersResult.users || [];
+    app.adminLoaded = true;
+    renderPermissionGroupTable();
+    populatePermissionUserDepartmentFilter();
+    renderPermissionUsers();
+  } catch (error) {
+    $("permissionGroupTableBody").innerHTML =
+      '<tr><td colspan="6" class="permission-table-empty"></td></tr>';
+    $("permissionGroupTableBody").querySelector("td").textContent =
+      `Không tải được phân quyền: ${error.message}`;
+    $("permissionUserList").innerHTML =
+      '<tr><td colspan="7" class="permission-table-empty"></td></tr>';
+    $("permissionUserList").querySelector("td").textContent =
+      `Không tải được người dùng: ${error.message}`;
+    $("permissionUserResultCount").textContent = "Không có dữ liệu";
+    toast(`Không tải được trang quản trị: ${error.message}`);
+  }
+}
+
+const LOGIN_ACCOUNT_KEY = "mshai-remembered-username";
+
+function clearLoginMessage() {
+  $("loginFormMessage").classList.add("hidden");
+  $("loginFormMessage").textContent = "";
+}
+
+function setLoginPasswordVisible(visible) {
+  $("loginPassword").type = visible ? "text" : "password";
+  const toggle = $("loginTogglePassword");
+  toggle.setAttribute("aria-pressed", String(visible));
+  toggle.setAttribute("aria-label", visible ? "Ẩn mật khẩu" : "Hiện mật khẩu");
+  toggle.title = visible ? "Ẩn mật khẩu" : "Hiện mật khẩu";
+  toggle
+    .querySelector("use")
+    .setAttribute("href", visible ? "#i-eye-off" : "#i-eye");
+}
+
+function setLoginMessage(message, type = "error") {
+  const element = $("loginFormMessage");
+  element.textContent = message;
+  element.dataset.type = type;
+  element.classList.toggle("hidden", !message);
+}
+
+function setAuthBusy(busy) {
+  app.authBusy = busy;
+  const button = $("loginSubmitButton");
+  const fields = [
+    $("loginUsername"),
+    $("loginPassword"),
+    $("loginRemember"),
+    $("loginTogglePassword"),
+  ];
+  fields.forEach((field) => {
+    field.disabled = busy;
+  });
+  button.disabled = busy;
+  button.setAttribute("aria-busy", String(busy));
+  button.querySelector("span").textContent = busy
+    ? "Đang đăng nhập..."
+    : "Đăng nhập";
+}
+
+function accountInitials(user) {
+  const value = (user?.full_name || user?.username || "MH").trim();
+  const parts = value.split(/\s+/).filter(Boolean);
+  return parts
+    .slice(-2)
+    .map((part) => part[0])
+    .join("")
+    .toLocaleUpperCase("vi-VN");
+}
+
+function accountRoleLabel(role) {
+  return (
+    {
+      admin: "Quản trị viên",
+      manager: "Quản lý",
+      employee: "Nhân viên",
+    }[role] || "Tài khoản nội bộ"
+  );
+}
+
+function closeAccountMenu({ restoreFocus = false } = {}) {
+  const menu = $("accountMenu");
+  if (menu.classList.contains("hidden")) return;
+  menu.classList.add("hidden");
+  $("loginButton").setAttribute("aria-expanded", "false");
+  if (restoreFocus) $("loginButton").focus();
+}
+
+function toggleAccountMenu() {
+  const menu = $("accountMenu");
+  const shouldOpen = menu.classList.contains("hidden");
+  if (!shouldOpen) {
+    closeAccountMenu();
+    return;
+  }
+  menu.classList.remove("hidden");
+  $("loginButton").setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() => $("logoutButton").focus());
+}
+
+function syncAuthenticatedUser(user) {
+  app.currentUser = user || null;
+  const authenticated = Boolean(app.currentUser);
+  const isAdmin = app.currentUser?.role === "admin";
+  const shell = document.querySelector(".app-shell");
+  shell.inert = !authenticated;
+  document.body.classList.remove("auth-pending");
+  document.body.classList.toggle("auth-required", !authenticated);
+  $("adminButton").classList.toggle("hidden", !isAdmin);
+  if (!isAdmin) {
+    if (app.drawer === "admin") closeDrawer();
+    app.adminGroups = [];
+    app.adminUsers = [];
+    app.adminLoaded = false;
+  }
+
+  const loginButton = $("loginButton");
+  const label = loginButton.querySelector(".account-button-label");
+  const chevron = loginButton.querySelector(".account-button-chevron");
+  if (authenticated) {
+    label.textContent = app.currentUser.full_name || app.currentUser.username;
+    loginButton.title = "Mở menu tài khoản";
+    loginButton.setAttribute("aria-label", loginButton.title);
+    loginButton.setAttribute("aria-haspopup", "menu");
+    loginButton.setAttribute("aria-controls", "accountMenu");
+    loginButton.dataset.authenticated = "true";
+    chevron.classList.remove("hidden");
+    $("accountAvatar").textContent = accountInitials(app.currentUser);
+    $("accountFullName").textContent = label.textContent;
+    $("accountMeta").textContent = [
+      accountRoleLabel(app.currentUser.role),
+      app.currentUser.department || `@${app.currentUser.username}`,
+    ].join(" · ");
+  } else {
+    closeAccountMenu();
+    label.textContent = "Đăng nhập";
+    loginButton.title = "Đăng nhập tài khoản nội bộ";
+    loginButton.setAttribute("aria-label", loginButton.title);
+    loginButton.setAttribute("aria-haspopup", "dialog");
+    loginButton.setAttribute("aria-controls", "loginDialog");
+    loginButton.setAttribute("aria-expanded", "false");
+    delete loginButton.dataset.authenticated;
+    chevron.classList.add("hidden");
+    app.documents = [];
+    app.documentsLoaded = false;
+    app.aiProviders = [];
+    app.defaultAiProvider = "";
+    app.chats = [createChat()];
+    app.currentId = app.chats[0].id;
+    renderHistory();
+    renderMessages();
+  }
+}
+
+function openLoginDialog({ required = !app.currentUser } = {}) {
+  closeDrawer();
+  const dialog = $("loginDialog");
+  if (dialog.open) return;
+  dialog.dataset.required = String(required);
+  clearLoginMessage();
+  setAuthBusy(false);
+  setLoginPasswordVisible(false);
+  const savedUsername = localStorage.getItem(LOGIN_ACCOUNT_KEY) || "";
+  $("loginRemember").checked = Boolean(savedUsername);
+  $("loginUsername").value = savedUsername;
+  $("loginPassword").value = "";
+  dialog.showModal();
+  $(savedUsername ? "loginPassword" : "loginUsername").focus();
+}
+
+async function finishAuthentication(user) {
+  syncAuthenticatedUser(user);
+  await loadUserChats();
+  $("loginDialog").close();
+  await Promise.all([loadTaxonomy(), loadAiProviders()]);
+  $("messageInput").focus();
+}
+
+async function restoreAuthentication() {
+  try {
+    const result = await getCurrentUser();
+    await finishAuthentication(result.user);
+  } catch (error) {
+    syncAuthenticatedUser(null);
+    openLoginDialog({ required: true });
+  }
+}
+
+async function submitLogin() {
+  const username = $("loginUsername").value.trim();
+  const password = $("loginPassword").value;
+  if (!username) {
+    $("loginUsername").focus();
+    return;
+  }
+  if (!password) {
+    $("loginPassword").focus();
+    return;
+  }
+
+  setAuthBusy(true);
+  clearLoginMessage();
+  try {
+    const result = await login(username, password);
+    if ($("loginRemember").checked) {
+      localStorage.setItem(LOGIN_ACCOUNT_KEY, username);
+    } else {
+      localStorage.removeItem(LOGIN_ACCOUNT_KEY);
+    }
+    await finishAuthentication(result.user);
+    toast(`Xin chào ${result.user.full_name || result.user.username}`);
+  } catch (error) {
+    setLoginMessage(error.message || "Không thể đăng nhập.");
+    $("loginPassword").select();
+  } finally {
+    setAuthBusy(false);
+  }
+}
+
+async function signOut() {
+  closeAccountMenu();
+  const button = $("logoutButton");
+  button.disabled = true;
+  try {
+    await logout();
+  } catch (error) {
+    if (error.status !== 401) {
+      toast(`Không thể đăng xuất: ${error.message}`);
+      return;
+    }
+  } finally {
+    button.disabled = false;
+  }
+  syncAuthenticatedUser(null);
+  openLoginDialog({ required: true });
+}
+
+function bindLoginEvents() {
+  const dialog = $("loginDialog");
+  $("loginButton").addEventListener("click", () => {
+    if (app.currentUser) toggleAccountMenu();
+    else openLoginDialog({ required: true });
+  });
+  $("logoutButton").addEventListener("click", signOut);
+  document.addEventListener("click", (event) => {
+    if (!$("accountControl").contains(event.target)) closeAccountMenu();
+  });
+  $("accountMenu").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeAccountMenu({ restoreFocus: true });
+    }
+  });
+  $("loginCloseButton").addEventListener("click", () => {
+    if (app.currentUser) dialog.close();
+  });
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog && app.currentUser) dialog.close();
+  });
+  dialog.addEventListener("cancel", (event) => {
+    if (!app.currentUser) event.preventDefault();
+  });
+  dialog.addEventListener("close", () => {
+    $("loginPassword").value = "";
+    setLoginPasswordVisible(false);
+    clearLoginMessage();
+  });
+  $("loginTogglePassword").addEventListener("click", () => {
+    const password = $("loginPassword");
+    const start = password.selectionStart;
+    const end = password.selectionEnd;
+    setLoginPasswordVisible(password.type === "password");
+    password.focus();
+    if (start != null && end != null) password.setSelectionRange(start, end);
+  });
+  for (const id of ["loginUsername", "loginPassword"]) {
+    $(id).addEventListener("input", clearLoginMessage);
+  }
+  $("loginForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitLogin();
+  });
+  window.addEventListener("mshai:auth-required", () => {
+    if (!app.currentUser && $("loginDialog").open) return;
+    syncAuthenticatedUser(null);
+    openLoginDialog({ required: true });
+    setLoginMessage("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+  });
+}
+
 function bindEvents() {
+  bindLoginEvents();
   $("composerForm").addEventListener("submit", (event) => {
     event.preventDefault();
     submitComposer();
@@ -1583,15 +3073,10 @@ function bindEvents() {
     $("messageInput").focus();
   });
   $("messageInput").addEventListener("input", resizeComposer);
-  $("conversationScroll").addEventListener(
-    "scroll",
-    updateScrollDownButton,
-    { passive: true },
-  );
-  $("scrollDownButton").addEventListener(
-    "click",
-    scrollConversationToBottom,
-  );
+  $("conversationScroll").addEventListener("scroll", updateScrollDownButton, {
+    passive: true,
+  });
+  $("scrollDownButton").addEventListener("click", scrollConversationToBottom);
   $("messageInput").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
@@ -1606,6 +3091,12 @@ function bindEvents() {
     startNewChat();
   });
   $("historyButton").addEventListener("click", () => openDrawer("history"));
+  $("adminButton").addEventListener("click", () => openDrawer("admin"));
+  document.querySelectorAll("[data-admin-panel]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setAdminPanel(button.dataset.adminPanel);
+    });
+  });
   if (DEBUG_MODE) {
     $("documentsButton").addEventListener("click", () =>
       openDrawer("documents"),
@@ -1617,6 +3108,14 @@ function bindEvents() {
     .querySelectorAll("[data-close]")
     .forEach((button) => button.addEventListener("click", closeDrawer));
   document.addEventListener("keydown", (event) => {
+    if (
+      event.key === "Escape" &&
+      ($("permissionGroupDialog").open ||
+        $("permissionUserDialog").open ||
+        $("createPermissionUserDialog").open)
+    ) {
+      return;
+    }
     if (event.key === "Escape" && app.drawer) closeDrawer();
     if (event.key === "Escape") setScopeExpanded(false);
   });
@@ -1625,14 +3124,21 @@ function bindEvents() {
       submitMessage(button.dataset.suggestion);
     });
   });
-  $("clearHistory").addEventListener("click", () => {
-    if (!window.confirm("Xóa toàn bộ lịch sử trò chuyện trên trình duyệt này?"))
+  $("clearHistory").addEventListener("click", async () => {
+    if (!window.confirm("Xóa toàn bộ lịch sử trò chuyện của tài khoản này?"))
       return;
+    try {
+      await clearConversations();
+    } catch (error) {
+      toast(error.message || "Không thể xóa lịch sử trò chuyện.");
+      return;
+    }
     app.chats = [createChat()];
     app.currentId = app.chats[0].id;
     storeChats();
     renderHistory();
     renderMessages();
+    toast("Đã xóa toàn bộ lịch sử trò chuyện.");
   });
 
   $("scopeToggle").addEventListener("click", () => {
@@ -1664,6 +3170,127 @@ function bindEvents() {
   $("documentDialogClose").addEventListener("click", () =>
     $("documentDialog").close(),
   );
+
+  $("permissionGroupSearch").addEventListener(
+    "input",
+    renderPermissionGroupTable,
+  );
+  $("permissionUserSearch").addEventListener("input", renderPermissionUsers);
+  $("permissionDepartmentFilter").addEventListener(
+    "change",
+    renderPermissionUsers,
+  );
+  $("permissionStatusFilter").addEventListener(
+    "change",
+    renderPermissionUsers,
+  );
+  $("openCreatePermissionUserButton").addEventListener(
+    "click",
+    openCreatePermissionUserDialog,
+  );
+  $("openCreatePermissionGroupButton").addEventListener("click", () => {
+    openPermissionGroupDialog();
+  });
+  $("closePermissionDialogButton").addEventListener(
+    "click",
+    closePermissionGroupDialog,
+  );
+  $("cancelPermissionDialogButton").addEventListener(
+    "click",
+    closePermissionGroupDialog,
+  );
+  $("deletePermissionGroupButton").addEventListener("click", async () => {
+    await deleteEditingPermissionGroup();
+  });
+  $("permissionGroupDialog").addEventListener("click", (event) => {
+    if (event.target === $("permissionGroupDialog")) {
+      closePermissionGroupDialog();
+    }
+  });
+  $("permissionGroupDescription").addEventListener("input", (event) => {
+    $("permissionDescriptionCount").textContent = String(
+      event.target.value.length,
+    );
+  });
+  $("permissionGroupForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitPermissionGroupDialog();
+  });
+  $("assignUsersFromDialogButton").addEventListener("click", () => {
+    closePermissionGroupDialog();
+    setAdminPanel("users");
+  });
+  $("permissionUserGroupSearch").addEventListener(
+    "input",
+    renderPermissionUserGroupChoices,
+  );
+  $("permissionUserRole").addEventListener(
+    "change",
+    syncPermissionUserRoleControls,
+  );
+  $("permissionUserActive").addEventListener(
+    "change",
+    syncPermissionUserStatusControl,
+  );
+  $("togglePermissionPasswordResetButton").addEventListener("click", () => {
+    const expanded =
+      $("togglePermissionPasswordResetButton").getAttribute("aria-expanded") ===
+      "true";
+    setPermissionPasswordResetExpanded(!expanded);
+    if (!expanded) $("permissionNewPassword").focus();
+  });
+  $("confirmPermissionPasswordResetButton").addEventListener(
+    "click",
+    submitPermissionPasswordReset,
+  );
+  for (const id of ["permissionNewPassword", "permissionConfirmPassword"]) {
+    $(id).addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      submitPermissionPasswordReset();
+    });
+  }
+  $("closePermissionUserDialogButton").addEventListener(
+    "click",
+    closePermissionUserDialog,
+  );
+  $("cancelPermissionUserDialogButton").addEventListener(
+    "click",
+    closePermissionUserDialog,
+  );
+  $("permissionUserDialog").addEventListener("click", (event) => {
+    if (event.target === $("permissionUserDialog")) {
+      closePermissionUserDialog();
+    }
+  });
+  $("permissionUserDialog").addEventListener("close", () => {
+    app.adminEditingUserId = "";
+    setPermissionUserDialogBusy(false);
+  });
+  $("permissionUserForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitPermissionUserDialog();
+  });
+  $("closeCreatePermissionUserDialogButton").addEventListener(
+    "click",
+    closeCreatePermissionUserDialog,
+  );
+  $("cancelCreatePermissionUserButton").addEventListener(
+    "click",
+    closeCreatePermissionUserDialog,
+  );
+  $("createPermissionUserDialog").addEventListener("click", (event) => {
+    if (event.target === $("createPermissionUserDialog")) {
+      closeCreatePermissionUserDialog();
+    }
+  });
+  $("createPermissionUserDialog").addEventListener("close", () => {
+    setCreatePermissionUserBusy(false);
+  });
+  $("createPermissionUserForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitCreatePermissionUserDialog();
+  });
   $("productGalleryClose").addEventListener("click", () =>
     $("productGalleryDialog").close(),
   );
@@ -1731,13 +3358,9 @@ async function checkHealth() {
   }
 }
 
-function initialize() {
-  const saved = loadJSON(STORE_KEY, {});
-  app.chats = Array.isArray(saved.chats) ? saved.chats : [];
-  if (!app.chats.length) app.chats.push(createChat());
-  app.currentId = app.chats.some((chat) => chat.id === saved.currentId)
-    ? saved.currentId
-    : app.chats[0].id;
+async function initialize() {
+  app.chats = [createChat()];
+  app.currentId = app.chats[0].id;
   app.prefs = { ...defaults, ...loadJSON(PREF_KEY, {}) };
   bindEvents();
   applyPrefs();
@@ -1746,9 +3369,12 @@ function initialize() {
   renderMessages();
   resizeComposer();
   updateComposerDockHeight();
-  loadTaxonomy();
-  loadAiProviders();
   checkHealth();
+  await restoreAuthentication();
 }
 
-initialize();
+initialize().catch((error) => {
+  syncAuthenticatedUser(null);
+  openLoginDialog({ required: true });
+  setLoginMessage(error.message || "Không thể khởi tạo phiên đăng nhập.");
+});

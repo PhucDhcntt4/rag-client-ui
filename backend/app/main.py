@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request  # type: ignore
+from fastapi import Depends, FastAPI, Request  # type: ignore
 from fastapi.middleware.cors import CORSMiddleware  # type: ignore
 from fastapi.responses import FileResponse, JSONResponse  # type: ignore
 from fastapi.staticfiles import StaticFiles  # type: ignore
@@ -14,6 +14,8 @@ from app.clients.qdrant_image_client import QdrantImageClient
 from app.clients.rag_client import RagClient, RagServiceError
 from app.config import get_settings
 from app.logging_config import configure_application_logging
+from app.routers.admin import router as admin_router
+from app.routers.auth import router as auth_router
 from app.routers.assets import router as assets_router
 from app.routers.ai import router as ai_router
 from app.routers.chat import router as chat_router
@@ -21,6 +23,7 @@ from app.routers.documents import router as documents_router
 from app.routers.health import router as health_router
 from app.routers.products import router as products_router
 from app.routers.taxonomy import router as taxonomy_router
+from app.security.dependencies import get_current_user
 from app.services.chat_service import ChatService
 from app.services.document_service import DocumentService
 from app.services.image_processing_service import ImageProcessingService
@@ -28,6 +31,8 @@ from app.services.product_image_decision import ProductImageDecisionEngine
 from app.services.product_image_downloader import ProductImageDownloader
 from app.services.product_image_service import ProductImageService
 from app.services.product_service import ProductService
+from app.routers.conversations import router as conversations_router
+
 
 FRONTEND_ROOT = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -143,17 +148,38 @@ def create_app() -> FastAPI:
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type"],
     )
+
+    @application.middleware("http")
+    async def prevent_stale_frontend_modules(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/js/"):
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
+
+    # Hai router công khai để kiểm tra server và đăng nhập.
     application.include_router(health_router)
-    application.include_router(ai_router)
-    application.include_router(assets_router)
-    application.include_router(documents_router)
-    application.include_router(taxonomy_router)
-    application.include_router(chat_router)
-    application.include_router(products_router)
+    application.include_router(auth_router)
+
+    # Mọi API nghiệp vụ chỉ hoạt động khi cookie đăng nhập hợp lệ.
+    protected_routers = (
+        admin_router,
+        ai_router,
+        assets_router,
+        conversations_router,
+        documents_router,
+        taxonomy_router,
+        chat_router,
+        products_router,
+    )
+    for protected_router in protected_routers:
+        application.include_router(
+            protected_router,
+            dependencies=[Depends(get_current_user)],
+        )
     application.mount(
         "/assets",
         StaticFiles(directory=FRONTEND_ROOT / "assets"),

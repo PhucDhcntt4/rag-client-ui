@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 
 from app.schemas import TaxonomyResponse
 from app.services.document_service import DocumentService
+from app.services.access_control import DocumentAccessDependency
 
 
 router = APIRouter(prefix="/api", tags=["Taxonomy"])
@@ -22,5 +23,8 @@ DocumentServiceDependency = Annotated[
 
 
 @router.get("/taxonomy", response_model=TaxonomyResponse)
-async def taxonomy(service: DocumentServiceDependency):
-    return await service.get_taxonomy()
+async def taxonomy(
+    service: DocumentServiceDependency,
+    access: DocumentAccessDependency,
+):
+    return await service.get_taxonomy(access)

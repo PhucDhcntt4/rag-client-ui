@@ -128,6 +128,19 @@ class ProductService:
         return list(dict.fromkeys(terms))[:6]
 
     @staticmethod
+    def _latest_search_terms(query: str) -> list[str]:
+        """Remove date expressions before extracting product descriptors."""
+
+        normalized = normalize_text(query)
+        normalized = re.sub(
+            r"\bthang\s+(?:0?[1-9]|1[0-2])"
+            r"(?:\s+(?:nam\s+)?\d{4})?\b",
+            " ",
+            normalized,
+        )
+        return ProductService._search_terms(normalized)
+
+    @staticmethod
     def _intent(query: str) -> tuple[bool, StockFilter | None]:
         normalized = normalize_text(query)
         latest = any(phrase in normalized for phrase in LATEST_PHRASES)
@@ -169,6 +182,29 @@ class ProductService:
             )
             return start, start.replace(year=start.year + 1)
 
+        explicit_month = re.search(
+            r"\bthang\s+(0?[1-9]|1[0-2])"
+            r"(?:\s+(?:nam\s+)?(\d{4}))?\b",
+            normalized,
+        )
+        if explicit_month:
+            month = int(explicit_month.group(1))
+            year = int(explicit_month.group(2) or now.year)
+            start = now.replace(
+                year=year,
+                month=month,
+                day=1,
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+            if month == 12:
+                end = start.replace(year=year + 1, month=1)
+            else:
+                end = start.replace(month=month + 1)
+            return start, end
+
         return None
 
     @staticmethod
@@ -201,16 +237,58 @@ class ProductService:
         return sum(1 for token in tokens if token in haystack)
 
     @staticmethod
-    def _to_source(detail: dict, citation: str) -> ProductSource:
+    def _to_source(
+        detail: dict,
+        citation: str,
+        query: str = "",
+    ) -> ProductSource:
         payload = ProductService._payload(detail)
         public_info = payload.get("public_info") or {}
         detail_product = (payload.get("detail") or {}).get("product") or {}
         images = payload.get("images") or []
+        raw_variants = [
+            raw
+            for raw in payload.get("variants") or []
+            if isinstance(raw, dict)
+        ]
+        image_urls_by_color = public_info.get("image_urls_by_color") or {}
+        color_names = list(dict.fromkeys(
+            [
+                str(color).strip()
+                for color in image_urls_by_color
+                if str(color).strip()
+            ]
+            + [
+                str(raw.get("color") or "").strip()
+                for raw in raw_variants
+                if str(raw.get("color") or "").strip()
+            ]
+        ))
+        normalized_query = f" {normalize_text(query)} "
+        matched_color = next(
+            (
+                color
+                for color in color_names
+                if f" {normalize_text(color)} " in normalized_query
+            ),
+            "",
+        )
+
+        selected_image_values = public_info.get("image_urls") or []
+        if matched_color and image_urls_by_color:
+            selected_image_values = next(
+                (
+                    values
+                    for color, values in image_urls_by_color.items()
+                    if normalize_text(color) == normalize_text(matched_color)
+                ),
+                selected_image_values,
+            )
         image_urls = list(dict.fromkeys(
             url
             for url in (
                 safe_http_url(value)
-                for value in public_info.get("image_urls") or []
+                for value in selected_image_values
             )
             if url
         ))
@@ -229,8 +307,12 @@ class ProductService:
             )
 
         variants: list[ProductVariant] = []
-        for raw in payload.get("variants") or []:
-            if not isinstance(raw, dict):
+        for raw in raw_variants:
+            if (
+                matched_color
+                and normalize_text(raw.get("color"))
+                != normalize_text(matched_color)
+            ):
                 continue
             variants.append(
                 ProductVariant(
@@ -345,6 +427,7 @@ class ProductService:
             total_inventory=total_inventory,
             available_variant_count=available_variant_count,
             variants=variants,
+            matched_color=matched_color,
         )
 
     @staticmethod
@@ -552,7 +635,7 @@ class ProductService:
             details = await self._resolve_identifiers(exact_codes[:page_size])
 
         elif latest:
-            search_terms = self._search_terms(query)
+            search_terms = self._latest_search_terms(query)
             candidate_limit = (
                 self.candidate_page_size
                 if stock_filter or search_terms
@@ -640,7 +723,7 @@ class ProductService:
 
             details = await self._load_details(list(summaries)[:100])
 
-        sources = [self._to_source(detail, "") for detail in details]
+        sources = [self._to_source(detail, "", query) for detail in details]
 
         # Mã sản phẩm cụ thể luôn được giữ lại để LLM có
         # thể trả lời "còn" hoặc "hết". Chỉ lọc các câu hỏi chung.
@@ -668,6 +751,70 @@ class ProductService:
             total_pages=result_total_pages,
             date_from=new_date_period[0] if new_date_period else None,
             date_to=new_date_period[1] if new_date_period else None,
+        )
+
+    async def load_latest_answer_context(
+        self,
+        query: str,
+        first_page: ProductPageResponse,
+        *,
+        max_products: int = 100,
+    ) -> ProductPageResponse:
+        """Load a complete dated latest-product set for the LLM only.
+
+        The response sent to the browser remains paginated, so product cards
+        and galleries are unchanged.
+        """
+
+        result = first_page.result
+        latest, _stock_filter = self._intent(query)
+        if (
+            not latest
+            or not result.has_more
+            or not result.date_from
+            or not result.date_to
+            or not result.total
+        ):
+            return first_page
+
+        target_count = min(result.total, max_products)
+        page_size = min(50, target_count)
+        total_pages = (target_count + page_size - 1) // page_size
+        page_results = await asyncio.gather(
+            *(
+                self.rag_client.list_latest_products(
+                    page=page,
+                    limit=page_size,
+                    date_from=result.date_from,
+                    date_to=result.date_to,
+                )
+                for page in range(1, total_pages + 1)
+            )
+        )
+        codes = list(dict.fromkeys(
+            str(row.get("product_code") or "").strip()
+            for page_result in page_results
+            for row in page_result.get("products") or []
+            if row.get("product_code")
+        ))[:target_count]
+        details = await self._load_details(codes)
+        products = [
+            self._to_source(detail, "", query)
+            for detail in details
+        ]
+        complete = len(products) >= result.total
+        context_result = result.model_copy(
+            update={
+                "page": 1,
+                "page_size": min(50, max(1, len(products))),
+                "shown": len(products),
+                "total_pages": 1 if complete else result.total_pages,
+                "has_more": not complete,
+            }
+        )
+        return ProductPageResponse(
+            products=products,
+            result=context_result,
         )
 
 
@@ -714,6 +861,11 @@ def build_product_context(
                 if result.total is not None else ""
             )
             + f"- Số sản phẩm trong ngữ cảnh hiện tại: {result.shown}\n"
+            + (
+                f"- Khoảng ngày đang truy vấn: "
+                f"{result.date_from} đến {result.date_to}\n"
+                if result.date_from and result.date_to else ""
+            )
             + f"- Trang hiện tại: {result.page}"
             + (
                 f"/{result.total_pages}"

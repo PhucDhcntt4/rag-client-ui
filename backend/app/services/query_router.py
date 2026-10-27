@@ -22,6 +22,12 @@ DOCUMENT_KEYWORDS = (
     "bảo hành",
     "văn hóa công ty",
     "đổi trả",
+    "danh sách quản lý",
+    "ban quản lý",
+    "quản lý",
+    "danh sách nhân viên",
+    "cơ cấu tổ chức",
+    "sơ đồ tổ chức",
 )
 
 PRODUCT_KEYWORDS = (
@@ -53,6 +59,25 @@ PRODUCT_HISTORY_MARKERS = (
     "xem sản phẩm",
 )
 
+PRODUCT_FOLLOW_UP_KEYWORDS = (
+    "màu",
+    "size",
+    "kích thước",
+    "giá",
+    "bao nhiêu tiền",
+    "còn hàng",
+    "hết hàng",
+    "tồn kho",
+    "còn bao nhiêu",
+    "hình ảnh",
+    "ảnh",
+    "link",
+    "biến thể",
+    "sản phẩm đó",
+    "mẫu đó",
+    "cái đó",
+)
+
 SKU_PATTERN = re.compile(
     r"\b(?=[A-Z0-9-]{4,20}\b)(?=[A-Z0-9-]*[A-Z])"
     r"(?=[A-Z0-9-]*\d)[A-Z0-9-]+\b",
@@ -67,6 +92,43 @@ def _fold_text(value: str) -> str:
         for character in normalized.replace("đ", "d")
         if not unicodedata.combining(character)
     )
+
+
+def _latest_product_identifier(
+    history: Sequence[ChatMessage] | None,
+) -> str | None:
+    """Prefer a SKU explicitly written by the user, then assistant output."""
+
+    recent = list(reversed(history or ()))
+    for role in ("user", "assistant"):
+        for message in recent:
+            if message.role != role:
+                continue
+            match = SKU_PATTERN.search(message.content)
+            if match:
+                return match.group(0).upper()
+    return None
+
+
+def resolve_product_query(
+    query: str,
+    history: Sequence[ChatMessage] | None = None,
+) -> str:
+    """Attach the recent SKU only when ``query`` is a product follow-up."""
+
+    if SKU_PATTERN.search(query):
+        return query
+
+    normalized = _fold_text(query).strip()
+    is_follow_up = any(
+        _fold_text(keyword) in normalized
+        for keyword in PRODUCT_FOLLOW_UP_KEYWORDS
+    )
+    if not is_follow_up:
+        return query
+
+    identifier = _latest_product_identifier(history)
+    return f"{identifier} {query}" if identifier else query
 
 
 def detect_data_source(

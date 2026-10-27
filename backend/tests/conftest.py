@@ -10,6 +10,14 @@ if str(BACKEND_ROOT) not in sys.path:
 os.environ.setdefault("RAG_BASE_URL", "http://rag.test")
 os.environ.setdefault("RAG_SEARCH_API_KEY", "test-search-key")
 os.environ.setdefault("RAG_ADMIN_API_KEY", "test-admin-key")
+os.environ.setdefault(
+    "DATABASE_URL",
+    "postgresql://test:test@127.0.0.1:5432/test",
+)
+os.environ.setdefault(
+    "AUTH_SECRET_KEY",
+    "test-auth-secret-key-with-at-least-32-characters",
+)
 os.environ.setdefault("AI_PROVIDER", "openai")
 os.environ.setdefault("OPENAI_BASE_URL", "http://llm.test/v1")
 os.environ.setdefault("OPENAI_API_KEY", "test-llm-key")

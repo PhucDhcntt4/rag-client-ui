@@ -35,7 +35,18 @@ class Settings(BaseSettings):
     app_port: int = Field(default=8100, ge=1, le=65535)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
-    frontend_origin: str = "http://127.0.0.1:5500"
+    frontend_origin: str = "http://127.0.0.1:8100"
+
+    database_url: SecretStr
+    rag_metadata_schema: str = Field(
+        default="rag_metadata",
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+    )
+
+    auth_secret_key: SecretStr
+    auth_cookie_name: str = "mshai_session"
+    auth_token_expire_minutes: int = Field(default=480, ge=5, le=10_080)
+    auth_cookie_secure: bool = False
 
     rag_base_url: str
     rag_search_api_key: SecretStr
@@ -140,6 +151,13 @@ class Settings(BaseSettings):
     def validate_rag_key(cls, value: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("RAG API key không được để trống")
+        return value.strip()
+
+    @field_validator("auth_secret_key", mode="before")
+    @classmethod
+    def validate_auth_secret_key(cls, value: str) -> str:
+        if not isinstance(value, str) or len(value.strip()) < 32:
+            raise ValueError("AUTH_SECRET_KEY phải có ít nhất 32 ký tự")
         return value.strip()
 
     @field_validator("product_timezone_offset")

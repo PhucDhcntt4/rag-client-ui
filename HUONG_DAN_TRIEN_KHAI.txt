@@ -126,6 +126,14 @@ Cấu hình đề xuất:
 
   FRONTEND_ORIGIN=http://127.0.0.1:8100
 
+  DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DATABASE
+  RAG_METADATA_SCHEMA=rag_metadata
+
+  AUTH_SECRET_KEY=<CHUOI_NGAU_NHIEN_TOI_THIEU_32_KY_TU>
+  AUTH_COOKIE_NAME=mshai_session
+  AUTH_TOKEN_EXPIRE_MINUTES=480
+  AUTH_COOKIE_SECURE=false
+
   RAG_BASE_URL=http://127.0.0.1:8000
   RAG_SEARCH_API_KEY=<RAG_SEARCH_KEY_MOI>
   RAG_ADMIN_API_KEY=<RAG_ADMIN_KEY_MOI>
@@ -137,15 +145,13 @@ Cấu hình đề xuất:
   PRODUCT_CANDIDATE_PAGE_SIZE=50
 
   AI_PROVIDER=gemini
-  AI_FALLBACK_PROVIDER=openai
+  # AI_FALLBACK_PROVIDER=openai
 
   GEMINI_API_KEY=<GEMINI_KEY_MOI>
   GEMINI_MODEL=gemini-3.5-flash-lite
-  GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 
   OPENAI_API_KEY=<OPENAI_KEY_MOI>
   OPENAI_MODEL=gpt-4.1-mini
-  OPENAI_BASE_URL=https://api.openai.com/v1
 
   LLM_TIMEOUT_SECONDS=90
 
@@ -172,6 +178,11 @@ cả dòng fallback thay vì để giá trị không hợp lệ.
 - APP_HOST/APP_PORT: thông tin host/port dự kiến của ứng dụng. Lệnh Uvicorn vẫn
   phải truyền --host và --port tương ứng.
 - FRONTEND_ORIGIN: origin được CORS cho phép; production dùng domain HTTPS thật.
+- DATABASE_URL: kết nối PostgreSQL dùng cho tài khoản và nhóm quyền.
+- RAG_METADATA_SCHEMA: schema chứa doc_types và document_groups.
+- AUTH_SECRET_KEY: khóa ký phiên, phải ngẫu nhiên và dài tối thiểu 32 ký tự.
+- AUTH_TOKEN_EXPIRE_MINUTES: thời gian sống của phiên đăng nhập.
+- AUTH_COOKIE_SECURE: phải đặt true khi production chạy HTTPS.
 - RAG_BASE_URL: URL RAG Server nhìn từ máy/container chạy Client Backend.
 - RAG_SEARCH_API_KEY: tìm kiếm knowledge và tải asset.
 - RAG_ADMIN_API_KEY: taxonomy, danh sách và chi tiết tài liệu.
@@ -184,7 +195,6 @@ cả dòng fallback thay vì để giá trị không hợp lệ.
 - AI_PROVIDER: provider mặc định, chỉ nhận gemini hoặc openai.
 - AI_FALLBACK_PROVIDER: provider dự phòng cho request không chọn provider cụ thể.
 - GEMINI_MODEL/OPENAI_MODEL: model thực tế mà key có quyền sử dụng.
-- GEMINI_BASE_URL/OPENAI_BASE_URL: có thể thay bằng gateway tương thích nếu cần.
 - LLM_TIMEOUT_SECONDS: timeout cho một lượt gọi LLM.
 
 Không dùng dạng sai sau:
@@ -244,33 +254,22 @@ Chỉ cần một lệnh này. FastAPI phục vụ cả frontend và backend.
 8. KIỂM TRA SAU KHI KHỞI ĐỘNG
 -----------------------------
 
-Health chỉ xác nhận Client Backend đã chạy:
+Health là endpoint công khai và chỉ xác nhận Client Backend đã chạy:
 
   Invoke-RestMethod http://127.0.0.1:8100/api/health
 
-Kiểm tra provider, không lộ key:
+Các endpoint provider, taxonomy, tài liệu, sản phẩm, chat và quản trị đều yêu
+cầu cookie đăng nhập. Chạy smoke check để kiểm tra đúng luồng thật mà không ghi
+mật khẩu vào command history:
 
-  Invoke-RestMethod http://127.0.0.1:8100/api/ai/providers
+  .\.venv\Scripts\python.exe smoke_check.py --username <tai-khoan-admin>
 
-Kiểm tra taxonomy và kết nối RAG admin:
+Linux:
 
-  Invoke-RestMethod http://127.0.0.1:8100/api/taxonomy
+  .venv/bin/python smoke_check.py --username <tai-khoan-admin>
 
-Kiểm tra chat bằng PowerShell:
-
-  $body = @{
-    query = "Quy định về thời gian làm việc như thế nào?"
-    history = @()
-    ai_provider = "gemini"
-  } | ConvertTo-Json
-
-  Invoke-RestMethod `
-    -Uri http://127.0.0.1:8100/api/chat `
-    -Method Post `
-    -ContentType "application/json" `
-    -Body $body
-
-Đổi ai_provider thành openai để thử OpenAI.
+Thêm --skip-products nếu môi trường chưa đồng bộ kho sản phẩm. Smoke check xác
+nhận cookie phiên, RAG, provider, taxonomy, tài liệu, sản phẩm và API quản trị.
 
 Kiểm tra thủ công trên giao diện:
 
@@ -311,6 +310,9 @@ Chỉ triển khai khi toàn bộ test passed.
 - GET  /                         giao diện chính
 - GET  /docs                     Swagger/OpenAPI
 - GET  /api/health               trạng thái Client Backend
+- POST /api/auth/login          đăng nhập và tạo cookie HttpOnly
+- GET  /api/auth/me             khôi phục phiên đăng nhập
+- POST /api/auth/logout         thu hồi phiên và xóa cookie
 - GET  /api/ai/providers         danh sách provider an toàn cho frontend
 - POST /api/chat                 truy xuất RAG và gọi LLM
 - GET  /api/taxonomy             loại/nhóm tài liệu
@@ -318,6 +320,11 @@ Chỉ triển khai khi toàn bộ test passed.
 - GET  /api/documents/{id}       chi tiết tài liệu
 - GET  /api/documents/by-source-key?source_key=...
 - GET  /api/rag-assets/{id}      proxy ảnh có Bearer key ở backend
+- GET  /api/products             tìm và lọc sản phẩm
+- GET  /api/products/latest      danh sách sản phẩm mới có phân trang
+- GET  /api/products/latest/details
+- GET  /api/products/{code}      chi tiết, tồn kho và ảnh theo mã
+- POST /api/products/image-search nhận diện sản phẩm từ ảnh
 
 Các endpoint RAG Server mà Client đang sử dụng:
 
@@ -512,7 +519,7 @@ Lỗi: Gemini/OpenAI hiện “chưa cấu hình”
 Lỗi: 503 từ LLM
 
 - Kiểm tra AI provider được chọn, API key, model, quota và kết nối Internet.
-- Kiểm tra GEMINI_BASE_URL hoặc OPENAI_BASE_URL.
+- Kiểm tra kết nối Internet tới API của provider.
 - Model phải tồn tại và key phải có quyền gọi model.
 
 Lỗi: trả lời có dấu ** thay vì hiển thị đậm hoặc bảng không format
@@ -556,6 +563,10 @@ Kiểm tra file .env có bị Git theo dõi không:
 
 [ ] Python 3.11+ và dependency đã cài.
 [ ] backend/.env được tạo từ .env.example.
+[ ] DATABASE_URL kết nối được và schema rag_client đã được khởi tạo.
+[ ] AUTH_SECRET_KEY là chuỗi ngẫu nhiên tối thiểu 32 ký tự.
+[ ] Đã tạo ít nhất một tài khoản bằng create_admin.py và chọn đúng role/nhóm quyền.
+[ ] AUTH_COOKIE_SECURE=true khi chạy production qua HTTPS.
 [ ] Không còn placeholder hoặc key đã bị lộ.
 [ ] RAG Server truy cập được từ Client Backend.
 [ ] RAG search/admin key đúng quyền.
@@ -627,3 +638,48 @@ Kiểm thử giao diện:
   2. Chạy Client Backend port 8100.
   3. Bấm Tìm bằng ảnh và chọn ảnh catalog.
   4. Kiểm tra mã đúng nằm ở vị trí đầu, album hiển thị và link sản phẩm mở được.
+
+
+20. QUẢN TRỊ NHÓM QUYỀN TÀI LIỆU
+---------------------------------
+
+Khởi tạo hoặc nâng cấp schema (lệnh có thể chạy lại):
+
+  cd backend
+  python -X utf8 init_db.py
+
+Mô hình quyền:
+
+- Mỗi user chỉ có một permission_group_id trong rag_client.users.
+- Một nhóm quyền có thể được cấp toàn bộ tài liệu, một doc_type (mục cha), hoặc
+  từng document_group (mục con).
+- Không gán nhóm hoặc nhóm đã bị khóa đồng nghĩa user không được truy cập tài liệu.
+- Admin luôn có toàn quyền tài liệu và là role duy nhất được gọi /api/admin/*.
+- Backend lọc cả taxonomy, danh sách/chi tiết tài liệu, kết quả chat và ảnh tài liệu;
+  việc ẩn nút trên frontend không được dùng thay cho kiểm tra quyền backend.
+
+Sử dụng giao diện:
+
+  1. Đăng nhập bằng tài khoản role=admin.
+  2. Bấm nút hình khiên trên header.
+  3. Tạo hoặc chọn nhóm quyền.
+  4. Chọn mục cha/mục con rồi bấm Lưu phạm vi tài liệu.
+  5. Trong danh sách người dùng, chọn đúng một nhóm cho từng tài khoản.
+  6. Đăng nhập bằng tài khoản thường để kiểm tra taxonomy và câu trả lời chỉ còn
+     dữ liệu thuộc phạm vi vừa cấp.
+
+Endpoint quản trị:
+
+- GET  /api/admin/permission-groups
+- POST /api/admin/permission-groups
+- PUT  /api/admin/permission-groups/{group_id}
+- DELETE /api/admin/permission-groups/{group_id}
+- PUT  /api/admin/permission-groups/{group_id}/scopes
+- GET  /api/admin/users
+- POST /api/admin/users
+- PUT  /api/admin/users/{user_id}
+- PUT  /api/admin/users/{user_id}/password
+- PUT  /api/admin/users/{user_id}/permission-group
+
+Nếu frontend chạy khác origin với backend, CORS phải cho phép GET, POST, PUT và
+DELETE; request phải gửi cookie bằng credentials=include.
