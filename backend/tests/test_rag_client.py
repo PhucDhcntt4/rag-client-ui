@@ -134,3 +134,49 @@ async def test_latest_products_uses_search_api():
 
     await async_client.aclose()
     assert result["products"][0]["product_code"] == "GRXG7"
+
+
+@pytest.mark.asyncio
+async def test_product_image_search_is_proxied_with_search_key():
+    def handler(request: httpx.Request):
+        assert request.url.path == "/api/v1/products/image-search"
+        assert request.headers["Authorization"] == "Bearer test-search-key"
+        assert request.headers["Content-Type"].startswith("multipart/form-data;")
+        assert b'filename="sample.jpg"' in request.content
+        assert b"image-bytes" in request.content
+        return httpx.Response(
+            200,
+            json={
+                "query_image": {
+                    "filename": "sample.jpg",
+                    "media_type": "image/jpeg",
+                    "size_bytes": 11,
+                },
+                "products": [],
+                "result": {
+                    "page": 1,
+                    "page_size": 10,
+                    "shown": 0,
+                    "total": 0,
+                    "total_pages": 0,
+                    "has_more": False,
+                },
+                "low_confidence": True,
+                "best_similarity": None,
+            },
+        )
+
+    async_client = httpx.AsyncClient(
+        base_url="http://rag.test",
+        transport=httpx.MockTransport(handler),
+    )
+    client = RagClient(get_settings(), client=async_client)
+
+    result = await client.search_products_by_image(
+        filename="sample.jpg",
+        media_type="image/jpeg",
+        data=b"image-bytes",
+    )
+
+    await async_client.aclose()
+    assert result["query_image"]["filename"] == "sample.jpg"

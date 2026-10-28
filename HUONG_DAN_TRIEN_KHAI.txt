@@ -587,46 +587,28 @@ Kiểm tra file .env có bị Git theo dõi không:
 19. TÌM SẢN PHẨM BẰNG ẢNH
 ---------------------------
 
-- Pipeline hiện tại: OpenCLIP tìm nhanh -> Qdrant toàn catalog -> Fast Accept;
-  nếu chưa chắc chắn thì Gemini Vision xác định bounding box -> crop ->
-  OpenCLIP lại -> Qdrant toàn catalog + theo product_type -> Gemini Visual
-  Verification -> Decision Engine -> RAG Service lấy chi tiết và tồn kho.
-- Model phải giống kho vector: ViT-B-32 / laion2b_s34b_b79k / 512 chiều.
-- Qdrant phải truy cập được từ máy chạy Client Backend.
-- Không mở Qdrant cho trình duyệt hoặc đưa QDRANT_API_KEY vào JavaScript.
-- RAG Service vẫn phải chạy để Client lấy chi tiết, giá, size và tồn kho
-  sau khi Qdrant trả về product_code.
-- Lần tìm ảnh đầu tiên có thể chậm hơn do OpenCLIP được nạp lazy.
+- Pipeline OpenCLIP, Qdrant, Gemini Vision, crop, Visual Verification và
+  Decision Engine chỉ chạy tại RAG Server.
+- Client Backend không tải model và không kết nối trực tiếp Qdrant. Client chỉ
+  xác thực người dùng, giới hạn dung lượng ảnh rồi proxy request tới:
+  POST {RAG_BASE_URL}/api/v1/products/image-search.
+- Client dùng RAG_SEARCH_API_KEY ở server-side; key không được gửi xuống
+  trình duyệt.
+- RAG Server phải bật PRODUCT_IMAGE_SEARCH_ENABLED và có collection ảnh,
+  OpenCLIP/Gemini Vision được cấu hình đúng ở dự án RAG Service.
 - Endpoint: POST /api/products/image-search, multipart field: file.
 - Hỗ trợ JPEG, PNG, WebP; dung lượng do PRODUCT_IMAGE_MAX_BYTES quyết định.
-- Chỉ tối đa PRODUCT_VISION_VERIFY_TOP_K ảnh tham chiếu được gửi tới Gemini.
-- Danh sách kiểm chứng luôn giữ lại một số ứng viên phù hợp nhóm
-  sản phẩm từ ảnh gốc. Việc này tránh làm mất SKU đúng khi crop
-  ảnh làm thay đổi thứ hạng vector.
-- Prompt phân tích và prompt kiểm chứng nằm riêng trong backend/app/prompts.
-- Nếu Gemini, ảnh tham chiếu hoặc truy vấn theo nhóm lỗi, hệ thống fallback
-  về kết quả Qdrant thay vì làm hỏng toàn bộ request.
-- PyTorch/OpenCLIP không phù hợp Vercel Functions; nên dùng VPS, Docker,
-  Render hoặc máy chủ có bộ nhớ đủ lớn.
+- RAG_IMAGE_TIMEOUT_SECONDS là thời gian Client chờ toàn bộ pipeline ảnh.
+- Client không còn cần PyTorch, OpenCLIP, Pillow, Hugging Face hoặc Qdrant key.
 
-Cấu hình chính:
+Cấu hình tại Client Backend:
 
-  PRODUCT_VISION_ENABLED=true
-  PRODUCT_VISUAL_VERIFICATION_ENABLED=true
-  PRODUCT_VISION_VERIFY_TOP_K=5
-  PRODUCT_VISION_ORIGINAL_CANDIDATE_SLOTS=2
-  PRODUCT_IMAGE_FAST_ACCEPT_SCORE=0.88
-  PRODUCT_IMAGE_FAST_ACCEPT_MARGIN=0.08
-  PRODUCT_IMAGE_VECTOR_WEIGHT=0.55
-  PRODUCT_IMAGE_VISUAL_WEIGHT=0.45
-  PRODUCT_IMAGE_VERIFY_MIN_SCORE=0.65
-  PRODUCT_IMAGE_VISUAL_MIN_SCORE=0.50
-  PRODUCT_IMAGE_HIGH_CONFIDENCE=0.82
-  PRODUCT_IMAGE_MEDIUM_CONFIDENCE=0.65
-  PRODUCT_REFERENCE_IMAGE_TIMEOUT_SECONDS=15
-  PRODUCT_REFERENCE_IMAGE_MAX_BYTES=6291456
+  RAG_BASE_URL=http://127.0.0.1:8000
+  RAG_SEARCH_API_KEY=<search key của RAG Server>
+  RAG_IMAGE_TIMEOUT_SECONDS=120
+  PRODUCT_IMAGE_MAX_BYTES=8388608
 
-Kiểm tra Qdrant:
+Cấu hình thuật toán và kiểm tra Qdrant thực hiện tại RAG Server:
 
   collection phải green
   vector size phải là 512

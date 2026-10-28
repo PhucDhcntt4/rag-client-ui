@@ -237,6 +237,39 @@ class RagClient:
 
         return result
 
+    async def search_products_by_image(
+        self,
+        *,
+        filename: str,
+        media_type: str,
+        data: bytes,
+    ) -> dict:
+        result = await self._request(
+            "POST",
+            "/api/v1/products/image-search",
+            admin=False,
+            files={
+                "file": (
+                    filename or "image",
+                    data,
+                    media_type or "application/octet-stream",
+                ),
+            },
+            timeout=self.settings.rag_image_timeout_seconds,
+        )
+
+        if (
+            not isinstance(result, dict)
+            or not isinstance(result.get("query_image"), dict)
+            or not isinstance(result.get("products"), list)
+            or not isinstance(result.get("result"), dict)
+        ):
+            raise RagServiceError(
+                "Response nhận diện ảnh của RAG Service không hợp lệ"
+            )
+
+        return result
+
     async def list_documents(
         self,
         *,

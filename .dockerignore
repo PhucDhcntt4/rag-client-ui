@@ -1,0 +1,16 @@
+.git
+.gitignore
+.vscode
+
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+
+backend/.venv
+backend/.env
+backend/.env.*
+backend/tests
+
+code_update_*
+*.log

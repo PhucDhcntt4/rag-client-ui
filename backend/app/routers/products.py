@@ -4,12 +4,8 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 
-from app.clients.rag_client import RagClient
+from app.clients.rag_client import RagClient, RagServiceError
 from app.schemas import ProductImageSearchResponse, ProductPageResponse
-from app.services.product_image_service import (
-    ProductImageSearchError,
-    ProductImageService,
-)
 from app.services.product_service import ProductService
 
 
@@ -36,16 +32,6 @@ def get_product_service(request: Request) -> ProductService:
 ProductServiceDependency = Annotated[
     ProductService,
     Depends(get_product_service),
-]
-
-
-def get_product_image_service(request: Request) -> ProductImageService:
-    return request.app.state.product_image_service
-
-
-ProductImageServiceDependency = Annotated[
-    ProductImageService,
-    Depends(get_product_image_service),
 ]
 
 
@@ -103,18 +89,35 @@ async def latest_product_details(
 
 @router.post("/image-search", response_model=ProductImageSearchResponse)
 async def search_products_by_image(
-    service: ProductImageServiceDependency,
+    rag_client: RagClientDependency,
     file: Annotated[UploadFile, File()],
 ):
     try:
-        data = await file.read(service.settings.product_image_max_bytes + 1)
-        return await service.search(
+        max_bytes = rag_client.settings.product_image_max_bytes
+        data = await file.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Ảnh vượt giới hạn {max_bytes} byte.",
+            )
+        return await rag_client.search_products_by_image(
             filename=file.filename or "image",
             media_type=file.content_type or "",
             data=data,
         )
-    except ProductImageSearchError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+    except RagServiceError as exc:
+        upstream_status = exc.status_code or 503
+        status_code = (
+            upstream_status
+            if upstream_status in {400, 404, 413, 415, 422, 429}
+            else 503
+        )
+        headers = {"Retry-After": exc.retry_after} if exc.retry_after else None
+        raise HTTPException(
+            status_code=status_code,
+            detail=str(exc),
+            headers=headers,
+        ) from exc
     finally:
         await file.close()
 

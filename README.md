@@ -23,7 +23,8 @@ dụng khi API key tương ứng đã được cấu hình trong `backend/.env`.
 Giao diện dùng một khung chat thống nhất. Client gửi `data_source=auto`;
 backend tự phân loại câu hỏi sang kho tài liệu hoặc kho sản phẩm.
 Khi người dùng chọn phạm vi tài liệu, truy vấn được cố định vào kho
-tài liệu. Khi gửi ảnh, client gọi trực tiếp pipeline nhận diện sản phẩm.
+tài liệu. Khi gửi ảnh, Client Backend chuyển tiếp ảnh tới pipeline nhận diện
+của RAG Server.
 
 - Giao diện: `http://127.0.0.1:8100`
 - Swagger: `http://127.0.0.1:8100/docs`
@@ -94,10 +95,10 @@ API proxy sản phẩm:
 - `POST /api/products/image-search` (multipart field `file`)
 
 Nút `Tìm bằng ảnh` gửi JPEG/PNG/WebP về Client Backend.
-Backend dùng cùng OpenCLIP `ViT-B-32/laion2b_s34b_b79k` để tạo vector 512
-chiều, truy vấn collection `PRODUCT_IMAGE_COLLECTION`, loại kết quả trùng theo
-mã sản phẩm, sau đó gọi RAG Service lấy chi tiết và tồn kho. Qdrant key
-chỉ tồn tại trong `backend/.env`, không được gửi xuống trình duyệt.
+Client Backend kiểm tra giới hạn dung lượng rồi proxy request bằng
+`RAG_SEARCH_API_KEY` tới `POST /api/v1/products/image-search` của RAG Server.
+OpenCLIP, Qdrant, Gemini Vision và Visual Verification chỉ chạy tại RAG Server;
+khóa RAG không được gửi xuống trình duyệt.
 
 Kết quả sản phẩm mới dùng khoảng ngày và phân trang từ RAG
 Server. Giao diện hiển thị `X/Y` và cho phép bấm `Xem thêm`; múi giờ
@@ -111,8 +112,9 @@ Chat sản phẩm nhận diện các nhóm câu hỏi:
 - Sản phẩm hết hàng, hết kho hoặc không còn hàng.
 - Kiểm tra mã, màu, size, giá và tồn kho cụ thể.
 
-Product API của RAG Service yêu cầu quyền admin. Trình duyệt chỉ gọi Client
-Backend; `RAG_ADMIN_API_KEY` không được gửi xuống frontend.
+Các Product API quản trị của RAG Service yêu cầu quyền admin; endpoint nhận
+diện ảnh chỉ cần search key. Trình duyệt chỉ gọi Client Backend;
+`RAG_SEARCH_API_KEY` và `RAG_ADMIN_API_KEY` không được gửi xuống frontend.
 
 ## Kiểm thử
 

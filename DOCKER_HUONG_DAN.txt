@@ -1,0 +1,88 @@
+HUONG DAN DOCKER - MS.HAI RAG CLIENT
+====================================
+
+1. FILE CAU HINH
+----------------
+Docker Compose doc cau hinh tu:
+
+  backend/.env.docker
+
+File nay chua khoa bi mat va da duoc Git ignore. Khong dua file nay len
+repository hoac gui cong khai.
+
+De tao file moi tren may khac:
+
+  copy backend\.env.docker.example backend\.env.docker
+
+Sau do thay toan bo gia tri replace-with-* va DATABASE_URL.
+
+Khi RAG Server/PostgreSQL chay tren may host, dung:
+
+  RAG_BASE_URL=http://host.docker.internal:8000
+  DATABASE_URL=postgresql://USER:PASSWORD@host.docker.internal:5432/DATABASE
+
+Khi cac dich vu chay trong cung Docker network, thay host.docker.internal
+bang ten service, vi du rag-service va postgres.
+
+2. BUILD IMAGE
+--------------
+Chay tai thu muc goc du an:
+
+  docker compose build
+
+3. KHOI TAO DATABASE
+--------------------
+
+  docker compose run --rm rag-client python init_db.py
+
+4. TAO TAI KHOAN ADMIN
+----------------------
+
+  docker compose run --rm rag-client python create_admin.py
+
+5. KHOI DONG
+------------
+
+  docker compose up -d
+  docker compose ps
+  docker compose logs -f --tail=200 rag-client
+
+Mo giao dien:
+
+  http://127.0.0.1:8100
+
+Kiem tra health:
+
+  http://127.0.0.1:8100/api/health
+
+6. DUNG / KHOI DONG LAI
+-----------------------
+
+  docker compose stop
+  docker compose restart rag-client
+  docker compose down
+
+7. CAP NHAT CODE
+----------------
+
+  docker compose build
+  docker compose run --rm rag-client python init_db.py
+  docker compose up -d
+
+8. XUAT IMAGE CHUYEN SANG MAY KHAC
+----------------------------------
+
+  docker image save --output mshai-rag-client-20261028.tar mshai-rag-client:2026.10.28
+
+May dich import bang:
+
+  docker image load --input mshai-rag-client-20261028.tar
+
+9. LUU Y PRODUCTION
+-------------------
+- Dung domain HTTPS va dat AUTH_COOKIE_SECURE=true.
+- Dat FRONTEND_ORIGIN dung chinh xac domain nguoi dung truy cap.
+- Khong dung 127.0.0.1 cho RAG_BASE_URL/DATABASE_URL ben trong container.
+- Neu cho phep upload anh qua Nginx, dat client_max_body_size >= 10m va
+  proxy_read_timeout >= 180s.
+- Client khong can Torch, OpenCLIP hay Qdrant; pipeline anh nam tai RAG Server.

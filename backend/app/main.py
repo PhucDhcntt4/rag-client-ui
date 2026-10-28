@@ -6,11 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware  # type: ignore
 from fastapi.responses import FileResponse, JSONResponse  # type: ignore
 from fastapi.staticfiles import StaticFiles  # type: ignore
 
-from app.clients.gemini_vision_client import GeminiVisionClient
-from app.clients.image_embedder import ProductImageEmbedder
 from app.clients.llm_client import LlmClient, LlmServiceError
-from app.clients.product_visual_verifier import ProductVisualVerifier
-from app.clients.qdrant_image_client import QdrantImageClient
 from app.clients.rag_client import RagClient, RagServiceError
 from app.config import get_settings
 from app.logging_config import configure_application_logging
@@ -26,10 +22,6 @@ from app.routers.taxonomy import router as taxonomy_router
 from app.security.dependencies import get_current_user
 from app.services.chat_service import ChatService
 from app.services.document_service import DocumentService
-from app.services.image_processing_service import ImageProcessingService
-from app.services.product_image_decision import ProductImageDecisionEngine
-from app.services.product_image_downloader import ProductImageDownloader
-from app.services.product_image_service import ProductImageService
 from app.services.product_service import ProductService
 from app.routers.conversations import router as conversations_router
 
@@ -48,73 +40,8 @@ async def lifespan(application: FastAPI):
         chat_page_size=settings.product_chat_page_size,
         candidate_page_size=settings.product_candidate_page_size,
     )
-    qdrant_image_client = QdrantImageClient(
-        base_url=settings.qdrant_url,
-        collection=settings.product_image_collection,
-        api_key=(
-            settings.qdrant_api_key.get_secret_value()
-            if settings.qdrant_api_key
-            else None
-        ),
-        timeout=settings.rag_timeout_seconds,
-    )
-    gemini_config = None
-    if (
-        settings.product_vision_enabled
-        or settings.product_visual_verification_enabled
-    ):
-        gemini_config = settings.get_ai_provider_config("gemini")
-
-    gemini_vision_client = None
-    if settings.product_vision_enabled and gemini_config is not None:
-        gemini_vision_client = GeminiVisionClient(
-            api_key=gemini_config.api_key.get_secret_value(),
-            model=settings.product_vision_model or gemini_config.model,
-            base_url=gemini_config.base_url,
-            timeout=settings.product_vision_timeout_seconds,
-        )
-
-    visual_verifier = None
-    image_downloader = None
-    decision_engine = None
-    if settings.product_visual_verification_enabled and gemini_config is not None:
-        visual_verifier = ProductVisualVerifier(
-            api_key=gemini_config.api_key.get_secret_value(),
-            model=settings.product_vision_model or gemini_config.model,
-            base_url=gemini_config.base_url,
-            timeout=settings.product_vision_timeout_seconds,
-        )
-        image_downloader = ProductImageDownloader(
-            max_bytes=settings.product_reference_image_max_bytes,
-            timeout=settings.product_reference_image_timeout_seconds,
-        )
-        decision_engine = ProductImageDecisionEngine(
-            vector_weight=settings.product_image_vector_weight,
-            visual_weight=settings.product_image_visual_weight,
-            verify_min_score=settings.product_image_verify_min_score,
-            visual_min_score=settings.product_image_visual_min_score,
-            high_confidence=settings.product_image_high_confidence,
-            medium_confidence=settings.product_image_medium_confidence,
-        )
-
-    product_image_service = ProductImageService(
-        settings,
-        ProductImageEmbedder(
-            model_name=settings.product_clip_model,
-            pretrained=settings.product_clip_pretrained,
-            device=settings.product_clip_device,
-        ),
-        qdrant_image_client,
-        rag_client,
-        vision_client=gemini_vision_client,
-        image_processor=ImageProcessingService(),
-        visual_verifier=visual_verifier,
-        image_downloader=image_downloader,
-        decision_engine=decision_engine,
-    )
     application.state.rag_client = rag_client
     application.state.product_service = product_service
-    application.state.product_image_service = product_image_service
     application.state.document_service = DocumentService(rag_client)
     application.state.chat_service = ChatService(
         settings,
@@ -126,13 +53,6 @@ async def lifespan(application: FastAPI):
         yield
     finally:
         await llm_client.close()
-        if gemini_vision_client is not None:
-            await gemini_vision_client.close()
-        if visual_verifier is not None:
-            await visual_verifier.close()
-        if image_downloader is not None:
-            await image_downloader.close()
-        await qdrant_image_client.close()
         await rag_client.close()
 
 

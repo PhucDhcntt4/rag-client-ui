@@ -52,57 +52,18 @@ class Settings(BaseSettings):
     rag_search_api_key: SecretStr
     rag_admin_api_key: SecretStr
     rag_timeout_seconds: float = Field(default=45, gt=0, le=300)
+    rag_image_timeout_seconds: float = Field(default=120, gt=0, le=600)
     rag_top_k: int = Field(default=8, ge=1, le=20)
 
     product_timezone_offset: str
     product_chat_page_size: int = Field(ge=1, le=50)
     product_candidate_page_size: int = Field(ge=1, le=50)
 
-    product_image_search_enabled: bool = False
-    qdrant_url: str = "http://127.0.0.1:6333"
-    qdrant_api_key: SecretStr | None = None
-    product_image_collection: str = Field(
-        default="bot_product_images_clip_v2",
-        pattern=r"^[A-Za-z0-9._-]{1,255}$",
-    )
-    product_clip_model: str = "ViT-B-32"
-    product_clip_pretrained: str = "laion2b_s34b_b79k"
-    product_clip_device: str = "auto"
     product_image_max_bytes: int = Field(
         default=8 * 1024 * 1024,
         ge=1024,
         le=20 * 1024 * 1024,
     )
-    product_image_result_limit: int = Field(default=8, ge=1, le=20)
-    product_image_candidate_limit: int = Field(default=50, ge=1, le=200)
-    product_image_min_score: float = Field(default=0.25, ge=0, le=1)
-
-    # Pipeline Gemini Vision được phát triển sau feature flag này. Khi tắt,
-    # luồng OpenCLIP + Qdrant hiện tại tiếp tục hoạt động như trước.
-    product_vision_enabled: bool = False
-    product_vision_model: str | None = None
-    product_vision_timeout_seconds: float = Field(default=45, gt=0, le=180)
-    product_vision_verify_top_k: int = Field(default=5, ge=1, le=20)
-    product_vision_original_candidate_slots: int = Field(default=2, ge=1, le=10)
-    product_visual_verification_enabled: bool = False
-    product_reference_image_timeout_seconds: float = Field(
-        default=15,
-        gt=0,
-        le=60,
-    )
-    product_reference_image_max_bytes: int = Field(
-        default=6 * 1024 * 1024,
-        ge=1024,
-        le=20 * 1024 * 1024,
-    )
-    product_image_fast_accept_score: float = Field(default=0.88, ge=0, le=1)
-    product_image_fast_accept_margin: float = Field(default=0.08, ge=0, le=1)
-    product_image_vector_weight: float = Field(default=0.55, ge=0, le=1)
-    product_image_visual_weight: float = Field(default=0.45, ge=0, le=1)
-    product_image_verify_min_score: float = Field(default=0.65, ge=0, le=1)
-    product_image_visual_min_score: float = Field(default=0.50, ge=0, le=1)
-    product_image_high_confidence: float = Field(default=0.82, ge=0, le=1)
-    product_image_medium_confidence: float = Field(default=0.65, ge=0, le=1)
 
     ai_provider: AiProvider | None = None
     ai_fallback_provider: AiProvider | None = None
@@ -123,7 +84,7 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_model: str | None = None
 
-    @field_validator("frontend_origin", "rag_base_url", "qdrant_url")
+    @field_validator("frontend_origin", "rag_base_url")
     @classmethod
     def normalize_required_url(cls, value: str) -> str:
         normalized = value.strip().rstrip("/")
@@ -167,24 +128,6 @@ class Settings(BaseSettings):
         if not re.fullmatch(r"[+-](?:0\d|1[0-4]):[0-5]\d", normalized):
             raise ValueError(
                 "PRODUCT_TIMEZONE_OFFSET phải có dạng +07:00 hoặc -05:30"
-            )
-        return normalized
-
-    @field_validator("product_clip_model", "product_clip_pretrained")
-    @classmethod
-    def validate_required_product_image_text(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("Cấu hình OpenCLIP không được để trống")
-        return normalized
-
-    @field_validator("product_clip_device")
-    @classmethod
-    def validate_product_clip_device(cls, value: str) -> str:
-        normalized = value.strip().lower()
-        if not re.fullmatch(r"(?:auto|cpu|mps|cuda(?::\d+)?)", normalized):
-            raise ValueError(
-                "PRODUCT_CLIP_DEVICE phải là auto, cpu, mps, cuda hoặc cuda:<số>"
             )
         return normalized
 
